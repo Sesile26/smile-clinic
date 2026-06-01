@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { signIn } from "next-auth/react";
 import { cn } from "@/lib/cn";
 import { loginSchema, type LoginValues } from "@/schemas/login";
 import {
@@ -431,6 +432,7 @@ export function LoginModal({ open, onClose }: LoginModalProps) {
                 </div>
                 <button
                   type="button"
+                  onClick={() => signIn("google")}
                   className="inline-flex w-full items-center justify-center gap-2.5 rounded-lg border border-[color:var(--line-2)] bg-white px-3.5 py-3 text-sm font-medium text-navy-900 transition-colors hover:bg-cream"
                 >
                   <IcoGoogle size={18} />
