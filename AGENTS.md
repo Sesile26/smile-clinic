@@ -32,8 +32,10 @@ Visual language: deep navy (#0A1628) + teal/mint (#00C9A7), clean sans-serif typ
   - `components/patients/` — секції сторінки пацієнтів
   - `components/dashboard/` — секції дашборду
   - `components/auth/` — форми логіну/реєстрації
-- `lib/` — низькорівневі інструменти: `db.ts` (Dexie/IndexedDB), `prisma.ts`, `sync.ts`, `cn.ts`
+  - `components/home/` — секції головної (лендінг): `HeroSection`, `MarqueeSection`, `ServicesSection`, `StatsSection`, `DoctorsSection`, `TestimonialsSection`, `CtaBannerSection`
+- `lib/` — низькорівневі інструменти: `db.ts` (Dexie/IndexedDB), `prisma.ts`, `sync.ts`, `cn.ts`, `typography.ts` (display-класи), `buttons.ts` (класи кнопок)
 - `hooks/` — кастомні React хуки
+- `schemas/` — zod-схеми форм (`login.ts`, …)
 - `services/` — API-клієнти (один файл = один ресурс)
 - `prisma/` — схема БД та міграції
 - `public/` — статичні файли, manifest.json, іконки PWA
@@ -43,7 +45,7 @@ Visual language: deep navy (#0A1628) + teal/mint (#00C9A7), clean sans-serif typ
 ## Стилі
 
 - **Тільки Tailwind-класи + arbitrary values.** Окремі CSS-файли для компонентів **заборонені**. Виняток: глобальні класи в `app/globals.css` для речей, які Tailwind не покриває (псевдо-елементи, складні animations, дочірні селектори).
-- **Кольори — лише через семантичні Tailwind-токени** (`bg-navy`, `text-teal`, `border-teal/55`). Повний список — у `tailwind.config.ts`.
+- **Кольори — лише через зареєстровані Tailwind-токени** (`bg-navy-900`, `text-mint`, `bg-cream`). Повний список — у `tailwind.config.ts`. Проект на **Tailwind v4**: конфіг підключається через `@config "../tailwind.config.ts"` в `app/globals.css`. Шкала: `navy-900/800/700/400`, `mint`/`mint-600`/`mint-100`, `cream`, `bone`, `ink`, `paper`. Шрифти: `font-serif` (Cormorant Garamond), `font-sans` (DM Sans). Тіні: `shadow-s1/s2/s3`. Easing: `ease-smooth`.
 - **Не використовувати `rgba(...)` для відомих кольорів** — тільки токени. Виняток: `rgba` всередині складних arbitrary values (gradients у `[background:...]`, `shadow-[...]`).
 - Sharp corners скрізь — `rounded-none` або max `rounded-sm` на основних поверхнях. `rounded-md` лише для badge/pill елементів.
 
@@ -77,6 +79,12 @@ Visual language: deep navy (#0A1628) + teal/mint (#00C9A7), clean sans-serif typ
 | `SyncStatus` | Статус синхронізації з сервером |
 | `AppointmentCard` | Картка запису на прийом |
 | `PatientCard` | Картка пацієнта |
+| `Container` | Центрований 1280px-контейнер (`.container`) |
+| `Reveal` | Scroll-reveal обгортка (IntersectionObserver → клас `in`) |
+| `Eyebrow` | Надзаголовок з мʼятною крапкою |
+| `SectionHeader` | 2-колонковий заголовок секції (title + lede) |
+| `LoginModal` | Модалка логіну (таби Пацієнт/Персонал, rhf+zod) |
+| `LoginModalProvider` | Контекст `useLoginModal()` (open/close) |
 
 ---
 
@@ -96,8 +104,19 @@ Visual language: deep navy (#0A1628) + teal/mint (#00C9A7), clean sans-serif typ
 | `IcoSync` | `IcoSync.tsx` |
 | `IcoWifi` | `IcoWifi.tsx` |
 | `IcoPlus` | `IcoPlus.tsx` |
+| `IcoArrow` | `IcoArrow.tsx` |
+| `IcoStar` | `IcoStar.tsx` |
+| `IcoShield` | `IcoShield.tsx` |
+| `IcoClock` | `IcoClock.tsx` |
+| `IcoMail` | `IcoMail.tsx` |
+| `IcoLock` | `IcoLock.tsx` |
+| `IcoId` | `IcoId.tsx` |
+| `IcoMenu` | `IcoMenu.tsx` |
+| `IcoSparkle` / `IcoImplant` / `IcoBraces` / `IcoChild` / `IcoCrown` / `IcoEmergency` | гліфи послуг |
+| `IcoInstagram` / `IcoFacebook` / `IcoTelegram` / `IcoYoutube` | соц-мережі |
+| `IcoGoogle` | мультиколірний бренд-логотип (фікс. кольори) |
 
-Кожна іконка: `className?: string`, `size?: number` (default 24), `strokeWidth?: number` (default 1.5).
+Кожна іконка: `className?: string`, `size?: number` (default 24), `strokeWidth?: number` (default залежить від іконки, базово 1.5). Спільний тип — `IconProps` (`components/icons/IconProps.ts`), barrel — `components/icons/index.ts`.
 
 ---
 
@@ -158,6 +177,8 @@ Visual language: deep navy (#0A1628) + teal/mint (#00C9A7), clean sans-serif typ
 | Утиліта | Файл |
 |---|---|
 | `cn(...classes)` | `lib/cn.ts` |
+| `displayXl`, `displayL`, `displayM`, `lede` | `lib/typography.ts` |
+| `btnBase`, `btnPrimary`, `btnMint`, `btnGhost`, `btnLink` | `lib/buttons.ts` |
 | `formatDate`, `formatTime` | `lib/formatDate.ts` |
 | `formatPhone` | `lib/formatPhone.ts` |
 | `getStatusColor`, `getStatusLabel` | `lib/appointmentStatus.ts` |
