@@ -171,6 +171,26 @@ export function LoginModal({ open, onClose }: LoginModalProps) {
     }, 900);
   };
 
+  /**
+   * Google sign-in handler. Kept SEPARATE from the email/password form's
+   * onValid submit on purpose — clicking the Google button must NOT touch
+   * the mock submit (which would close the modal before the OAuth redirect
+   * has a chance to fire).
+   *
+   * - `e.preventDefault()`  belt-and-braces: blocks any default that could
+   *   bubble up from the button living inside <form>, even with type="button".
+   * - `await signIn(...)`   waits for the fetch + window.location.href
+   *   assignment so we don't get React re-renders racing with the redirect.
+   * - `redirect: true`      default behaviour; spelled out so a future
+   *   refactor doesn't accidentally flip it.
+   * - `callbackUrl: "/"`    where the OAuth callback should land after
+   *   Google completes the sign-in (change later when /cabinet lands).
+   */
+  const handleGoogle = async (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    await signIn("google", { callbackUrl: "/", redirect: true });
+  };
+
   return (
     <div
       role="presentation"
@@ -432,7 +452,7 @@ export function LoginModal({ open, onClose }: LoginModalProps) {
                 </div>
                 <button
                   type="button"
-                  onClick={() => signIn("google")}
+                  onClick={handleGoogle}
                   className="inline-flex w-full items-center justify-center gap-2.5 rounded-lg border border-[color:var(--line-2)] bg-white px-3.5 py-3 text-sm font-medium text-navy-900 transition-colors hover:bg-cream"
                 >
                   <IcoGoogle size={18} />

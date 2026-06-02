@@ -1,8 +1,8 @@
 import NextAuth, { type DefaultSession } from "next-auth";
-import Google from "next-auth/providers/google";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/lib/prisma";
 import { Role } from "@/lib/generated/prisma/enums";
+import authConfig from "./auth.config";
 
 // ─── Type augmentation ───────────────────────────────────────────────────────
 
@@ -25,29 +25,24 @@ function parseEmailList(value?: string): string[] {
     .filter(Boolean);
 }
 
-// ─── Auth config ─────────────────────────────────────────────────────────────
+// ─── Auth config (full, Node-runtime only) ───────────────────────────────────
+//
+// Auth.js v5 split-config pattern:
+//   • auth.config.ts → edge-safe (providers, pages) — used by middleware.
+//   • auth.ts        → full config — used by server components, route handlers,
+//                      and the [...nextauth] handler. Adds the Prisma adapter
+//                      and DB-touching callbacks/events that cannot run on Edge.
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
-  // @auth/prisma-adapter expects @prisma/client types; we use a custom output
-  // path (lib/generated/prisma), so cast is required — runtime is unaffected.
-  adapter: PrismaAdapter(prisma as Parameters<typeof PrismaAdapter>[0]),
+  ...authConfig,
 
-  providers: [
-    Google({
-      clientId: process.env.AUTH_GOOGLE_ID!,
-      clientSecret: process.env.AUTH_GOOGLE_SECRET!,
-    }),
-  ],
+  // @auth/prisma-adapter expects @prisma/client types; we use a custom output
+  // path (lib/generated/prisma), so a cast is required — runtime is unaffected.
+  adapter: PrismaAdapter(prisma as Parameters<typeof PrismaAdapter>[0]),
 
   // Database sessions: roles are always current (no stale JWT), sessions can
   // be revoked server-side — important for healthcare role management.
   session: { strategy: "database" },
-
-  trustHost: true,
-
-  pages: {
-    signIn: "/login",
-  },
 
   callbacks: {
     async session({ session, user }) {

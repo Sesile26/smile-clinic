@@ -37,6 +37,20 @@ export default auth((req) => {
 });
 
 export const config = {
+  // Node runtime — REQUIRED because middleware imports the full `auth.ts`,
+  // which loads PrismaAdapter and the generated Prisma client (both pull in
+  // `node:path`/`node:fs` that the Edge runtime cannot resolve).
+  //
+  // Critically, this also lets the middleware decode the database-strategy
+  // session cookie properly. With the edge-only split config (auth.config),
+  // middleware defaults to JWT decoding and falls over with
+  // `JWEInvalid: Invalid Compact JWE` on every request after a Google sign-in,
+  // because the cookie holds a session-token UUID, not a JWE — making the user
+  // appear logged-out and the UI flicker back to anonymous (the symptom that
+  // looked like "the Google button reloads the page").
+  //
+  // Supported natively in Next.js 16 (no experimental flag).
+  runtime: "nodejs",
   matcher: [
     // Run on all paths except static assets, images, PWA assets, and auth API
     "/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|workbox-.*|icons|api/auth).*)",
