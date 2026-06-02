@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { signOut, useSession } from "next-auth/react";
 import { cn } from "@/lib/cn";
 import { btnBase, btnMint } from "@/lib/buttons";
 import { useLoginModal } from "@/components/ui/LoginModalProvider";
@@ -25,8 +26,131 @@ function Logo() {
   );
 }
 
+interface AvatarMenuProps {
+  user: {
+    name?: string | null;
+    email?: string | null;
+    image?: string | null;
+  };
+}
+
+/**
+ * Trigger-button + dropdown with name/email and a "Вийти" action.
+ *
+ * Avatar image: plain <img> with referrerPolicy="no-referrer" instead of
+ * next/image. Why:
+ *   - sidesteps next.config images.remotePatterns (no infra touched);
+ *   - Google sometimes refuses to serve avatar URLs when the Referer header
+ *     points at localhost/private hosts — `no-referrer` makes that reliable;
+ *   - the file is 40×40 px, next/image optimisation gain is negligible here.
+ */
+function AvatarMenu({ user }: AvatarMenuProps) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const firstItemRef = useRef<HTMLButtonElement>(null);
+
+  // Click-outside + Escape close. Listeners are only attached while open
+  // to avoid the "clicked trigger to open immediately closes" race.
+  useEffect(() => {
+    if (!open) return;
+
+    const onPointerDown = (e: MouseEvent) => {
+      if (!containerRef.current?.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  // Move focus to the first interactive item on open.
+  useEffect(() => {
+    if (open) firstItemRef.current?.focus();
+  }, [open]);
+
+  const fallbackLetter = (user.name ?? user.email ?? "?")
+    .trim()
+    .charAt(0)
+    .toUpperCase();
+
+  const handleSignOut = () => {
+    setOpen(false);
+    void signOut({ callbackUrl: "/" });
+  };
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={
+          user.name ?? user.email ?? "Меню користувача"
+        }
+        onClick={() => setOpen((v) => !v)}
+        className="grid h-10 w-10 place-items-center overflow-hidden rounded-full border border-[color:var(--line-2)] bg-cream text-sm font-medium text-navy-900 transition-colors duration-200 hover:border-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint focus-visible:ring-offset-1"
+      >
+        {user.image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={user.image}
+            alt=""
+            referrerPolicy="no-referrer"
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <span aria-hidden="true">{fallbackLetter}</span>
+        )}
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          aria-label="Користувач"
+          className="absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-md border border-[color:var(--line)] bg-white shadow-s2"
+        >
+          <div className="border-b border-[color:var(--line)] px-4 py-3">
+            {user.name && (
+              <div className="truncate text-sm font-medium text-navy-900">
+                {user.name}
+              </div>
+            )}
+            {user.email && (
+              <div className="truncate text-xs text-navy-400">{user.email}</div>
+            )}
+          </div>
+          <button
+            ref={firstItemRef}
+            type="button"
+            role="menuitem"
+            onClick={handleSignOut}
+            className="block w-full px-4 py-2.5 text-left text-sm font-medium text-navy-900 transition-colors duration-150 hover:bg-cream focus:bg-cream focus:outline-none"
+          >
+            Вийти
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Header() {
   const { open } = useLoginModal();
+  const { data: session, status } = useSession();
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -63,13 +187,24 @@ export function Header() {
         </nav>
 
         <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={open}
-            className="rounded-full px-4 py-2.5 text-sm font-medium text-navy-900 transition-colors duration-200 hover:bg-cream"
-          >
-            Увійти
-          </button>
+          {status === "loading" ? (
+            // Skeleton: same dimensions as the avatar / login button so the
+            // header doesn't reflow when the session resolves.
+            <div
+              aria-hidden="true"
+              className="h-10 w-10 animate-pulse rounded-full bg-cream"
+            />
+          ) : status === "authenticated" && session?.user ? (
+            <AvatarMenu user={session.user} />
+          ) : (
+            <button
+              type="button"
+              onClick={open}
+              className="rounded-full px-4 py-2.5 text-sm font-medium text-navy-900 transition-colors duration-200 hover:bg-cream"
+            >
+              Увійти
+            </button>
+          )}
           <a href="#booking" className={cn(btnBase, btnMint, "hidden sm:inline-flex")}>
             Записатися
             <IcoArrow size={16} />
