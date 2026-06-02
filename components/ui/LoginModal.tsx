@@ -12,12 +12,12 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { signIn } from "next-auth/react";
 import { cn } from "@/lib/cn";
 import { loginSchema, type LoginValues } from "@/schemas/login";
+import { registerSchema, type RegisterValues } from "@/schemas/register";
 import {
   IcoArrow,
   IcoClose,
   IcoClock,
   IcoGoogle,
-  IcoId,
   IcoLock,
   IcoMail,
   IcoShield,
@@ -29,7 +29,8 @@ interface LoginModalProps {
   onClose: () => void;
 }
 
-type SubmitStatus = "idle" | "submitting" | "success";
+type Tab = "signin" | "signup";
+type SubmitStatus = "idle" | "submitting";
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -37,53 +38,50 @@ const FOCUSABLE =
 const fieldInput =
   "w-full rounded-lg border border-[color:var(--line-2)] bg-white py-[13px] pl-10 pr-3.5 text-sm text-navy-900 outline-none transition-[border,box-shadow] duration-200 placeholder:text-navy-400/60 focus:border-navy-900 focus:shadow-[0_0_0_3px_rgba(0,201,167,0.18)]";
 
+const fieldLabel = "text-xs font-medium tracking-[0.04em] text-navy-700";
+const fieldError = "text-xs text-red-500";
+
 export function LoginModal({ open, onClose }: LoginModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
-  const patientTabRef = useRef<HTMLButtonElement>(null);
-  const staffTabRef = useRef<HTMLButtonElement>(null);
+  const signinTabRef = useRef<HTMLButtonElement>(null);
+  const signupTabRef = useRef<HTMLButtonElement>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
 
+  const [tab, setTab] = useState<Tab>("signin");
   const [showPw, setShowPw] = useState(false);
   const [status, setStatus] = useState<SubmitStatus>("idle");
+  const [formError, setFormError] = useState<string | null>(null);
   const [pill, setPill] = useState<{ left: number; width: number }>({
     left: 4,
     width: 0,
   });
 
-  const {
-    register,
-    handleSubmit,
-    watch,
-    setValue,
-    reset,
-    formState: { errors },
-  } = useForm<LoginValues>({
+  const loginForm = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
-    defaultValues: {
-      mode: "patient",
-      staffId: "",
-      email: "",
-      password: "",
-      remember: false,
-    },
+    defaultValues: { email: "", password: "" },
   });
 
-  const mode = watch("mode");
-  const isStaff = mode === "staff";
+  const registerForm = useForm<RegisterValues>({
+    resolver: zodResolver(registerSchema),
+    defaultValues: { name: "", email: "", phone: "+380", password: "" },
+  });
+
+  const isSignup = tab === "signup";
 
   const measurePill = useCallback(() => {
-    const active = isStaff ? staffTabRef.current : patientTabRef.current;
+    const active = isSignup ? signupTabRef.current : signinTabRef.current;
     const parent = tabsRef.current;
     if (!active || !parent) return;
     const a = active.getBoundingClientRect();
     const p = parent.getBoundingClientRect();
     setPill({ left: a.left - p.left, width: a.width });
-  }, [isStaff]);
+  }, [isSignup]);
 
-  // Reposition the tab pill when mode changes, modal opens, or window resizes.
+  // Reposition the tab pill when the active tab changes, modal opens, or
+  // the window resizes.
   useLayoutEffect(() => {
     if (open) measurePill();
-  }, [open, mode, measurePill]);
+  }, [open, tab, measurePill]);
 
   useEffect(() => {
     if (!open) return;
@@ -92,7 +90,7 @@ export function LoginModal({ open, onClose }: LoginModalProps) {
     return () => window.removeEventListener("resize", onResize);
   }, [open, measurePill]);
 
-  // Open/close side effects: scroll lock, autofocus, reset, restore focus.
+  // Open/close side effects: scroll lock, autofocus first input, reset state.
   useEffect(() => {
     if (!open) return;
 
@@ -100,6 +98,7 @@ export function LoginModal({ open, onClose }: LoginModalProps) {
     document.body.style.overflow = "hidden";
     setStatus("idle");
     setShowPw(false);
+    setFormError(null);
 
     const focusTimer = window.setTimeout(() => {
       dialogRef.current
@@ -114,6 +113,12 @@ export function LoginModal({ open, onClose }: LoginModalProps) {
     };
   }, [open]);
 
+  // Reset error and submit status when tab changes.
+  useEffect(() => {
+    setFormError(null);
+    setStatus("idle");
+  }, [tab]);
+
   // Keyboard: Escape closes, Tab is trapped within the dialog.
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -126,7 +131,6 @@ export function LoginModal({ open, onClose }: LoginModalProps) {
 
       const focusables = dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE);
       if (!focusables || focusables.length === 0) return;
-
       const list = Array.from(focusables).filter(
         (el) => el.offsetParent !== null,
       );
@@ -135,7 +139,6 @@ export function LoginModal({ open, onClose }: LoginModalProps) {
       const first = list[0];
       const last = list[list.length - 1];
       const activeEl = document.activeElement;
-
       if (e.shiftKey && activeEl === first) {
         e.preventDefault();
         last.focus();
@@ -147,49 +150,87 @@ export function LoginModal({ open, onClose }: LoginModalProps) {
     [onClose],
   );
 
-  const switchMode = (next: "patient" | "staff") => {
-    setValue("mode", next, { shouldValidate: false });
-  };
+  // ─── Submit handlers ───────────────────────────────────────────────────────
 
-  const onValid = (values: LoginValues) => {
-    // No auth backend yet — simulate the mockup's submit feedback.
-    // TODO: wire to authService.login() once available.
-    void values;
+  const onSignin = async (values: LoginValues) => {
+    setFormError(null);
     setStatus("submitting");
-    window.setTimeout(() => {
-      setStatus("success");
-      window.setTimeout(() => {
-        reset({
-          mode,
-          staffId: "",
-          email: "",
-          password: "",
-          remember: false,
-        });
-        onClose();
-      }, 900);
-    }, 900);
+    try {
+      const result = await signIn("credentials", {
+        email: values.email,
+        password: values.password,
+        redirect: false,
+      });
+
+      if (!result?.ok || result.error) {
+        // Generic message — never reveal whether the email or the password
+        // was wrong. Anti-enumeration default.
+        setFormError("Невірний email або пароль");
+        setStatus("idle");
+        return;
+      }
+
+      // Hard navigation: forces useSession on the destination page to pick
+      // up the freshly-set cookie without an extra round-trip.
+      window.location.href = "/";
+    } catch (err) {
+      console.error("[signin] unexpected error", err);
+      setFormError("Щось пішло не так. Спробуйте ще раз.");
+      setStatus("idle");
+    }
   };
 
-  /**
-   * Google sign-in handler. Kept SEPARATE from the email/password form's
-   * onValid submit on purpose — clicking the Google button must NOT touch
-   * the mock submit (which would close the modal before the OAuth redirect
-   * has a chance to fire).
-   *
-   * - `e.preventDefault()`  belt-and-braces: blocks any default that could
-   *   bubble up from the button living inside <form>, even with type="button".
-   * - `await signIn(...)`   waits for the fetch + window.location.href
-   *   assignment so we don't get React re-renders racing with the redirect.
-   * - `redirect: true`      default behaviour; spelled out so a future
-   *   refactor doesn't accidentally flip it.
-   * - `callbackUrl: "/"`    where the OAuth callback should land after
-   *   Google completes the sign-in (change later when /cabinet lands).
-   */
+  const onSignup = async (values: RegisterValues) => {
+    setFormError(null);
+    setStatus("submitting");
+    try {
+      const res = await fetch("/api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(values),
+      });
+
+      if (!res.ok) {
+        let message = "Не вдалося створити акаунт";
+        try {
+          const data = (await res.json()) as { error?: string };
+          if (data.error) message = data.error;
+        } catch {
+          /* keep default */
+        }
+        setFormError(message);
+        setStatus("idle");
+        return;
+      }
+
+      // Registration OK — auto sign-in with the same credentials, then
+      // redirect via signIn's built-in window.location handling.
+      await signIn("credentials", {
+        email: values.email,
+        password: values.password,
+        callbackUrl: "/",
+        redirect: true,
+      });
+    } catch (err) {
+      console.error("[signup] unexpected error", err);
+      setFormError("Щось пішло не так. Спробуйте ще раз.");
+      setStatus("idle");
+    }
+  };
+
   const handleGoogle = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     await signIn("google", { callbackUrl: "/", redirect: true });
   };
+
+  // ─── Render ────────────────────────────────────────────────────────────────
+
+  const submitLabel =
+    status === "submitting"
+      ? "Перевіряємо…"
+      : isSignup
+        ? "Зареєструватися"
+        : "Увійти";
 
   return (
     <div
@@ -259,7 +300,7 @@ export function LoginModal({ open, onClose }: LoginModalProps) {
             <IcoClose size={18} />
           </button>
 
-          {/* Tabs */}
+          {/* Tabs: Вхід / Реєстрація */}
           <div
             ref={tabsRef}
             role="tablist"
@@ -271,37 +312,37 @@ export function LoginModal({ open, onClose }: LoginModalProps) {
               style={{ left: pill.left, width: pill.width }}
             />
             <button
-              ref={patientTabRef}
+              ref={signinTabRef}
               type="button"
               role="tab"
-              aria-selected={!isStaff}
-              onClick={() => switchMode("patient")}
+              aria-selected={!isSignup}
+              onClick={() => setTab("signin")}
               className={cn(
                 "relative z-[2] rounded-full px-[22px] py-2.5 text-[13px] font-medium transition-colors duration-200",
-                isStaff ? "text-navy-400" : "text-navy-900",
+                isSignup ? "text-navy-400" : "text-navy-900",
               )}
             >
-              Пацієнт
+              Вхід
             </button>
             <button
-              ref={staffTabRef}
+              ref={signupTabRef}
               type="button"
               role="tab"
-              aria-selected={isStaff}
-              onClick={() => switchMode("staff")}
+              aria-selected={isSignup}
+              onClick={() => setTab("signup")}
               className={cn(
                 "relative z-[2] rounded-full px-[22px] py-2.5 text-[13px] font-medium transition-colors duration-200",
-                isStaff ? "text-navy-900" : "text-navy-400",
+                isSignup ? "text-navy-900" : "text-navy-400",
               )}
             >
-              Персонал
+              Реєстрація
             </button>
           </div>
 
           <h3 className="m-0 mb-2 font-serif text-[28px] leading-[1.15] tracking-[-0.015em] text-navy-900">
-            {isStaff ? (
+            {isSignup ? (
               <>
-                Робочий <em className="italic text-mint-600">кабінет</em>.
+                Створіть <em className="italic text-mint-600">акаунт</em>.
               </>
             ) : (
               <>
@@ -310,183 +351,253 @@ export function LoginModal({ open, onClose }: LoginModalProps) {
             )}
           </h3>
           <p className="m-0 mb-7 text-sm text-navy-400">
-            {isStaff
-              ? "Вхід для лікарів та адміністраторів клініки."
+            {isSignup
+              ? "Зареєструйтесь, щоб бронювати візити та бачити свою історію."
               : "Увійдіть, щоб переглянути історію візитів та керувати записами."}
           </p>
 
-          <form onSubmit={handleSubmit(onValid)} noValidate>
-            <input type="hidden" {...register("mode")} />
+          {formError && (
+            <div
+              role="alert"
+              className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+            >
+              {formError}
+            </div>
+          )}
 
-            {isStaff && (
+          {/* ─── Sign-in form ──────────────────────────────────────────────── */}
+          {!isSignup && (
+            <form onSubmit={loginForm.handleSubmit(onSignin)} noValidate>
               <div className="relative mb-4 flex flex-col gap-1.5">
-                <label
-                  htmlFor="staffId"
-                  className="text-xs font-medium tracking-[0.04em] text-navy-700"
-                >
-                  ID співробітника
+                <label htmlFor="email" className={fieldLabel}>
+                  Email
                 </label>
                 <div className="relative flex items-center">
-                  <IcoId
+                  <IcoMail
                     size={16}
                     className="pointer-events-none absolute left-3.5 text-navy-400"
                   />
                   <input
-                    id="staffId"
-                    placeholder="SC-0000"
-                    autoComplete="off"
+                    id="email"
+                    type="email"
+                    placeholder="ім’я@smileclinic.ua"
+                    autoComplete="email"
                     className={fieldInput}
-                    {...register("staffId")}
+                    {...loginForm.register("email")}
                   />
                 </div>
-                {errors.staffId && (
-                  <span className="text-xs text-red-500">
-                    {errors.staffId.message}
+                {loginForm.formState.errors.email && (
+                  <span className={fieldError}>
+                    {loginForm.formState.errors.email.message}
                   </span>
                 )}
               </div>
-            )}
 
-            <div className="relative mb-4 flex flex-col gap-1.5">
-              <label
-                htmlFor="email"
-                className="text-xs font-medium tracking-[0.04em] text-navy-700"
-              >
-                Email
-              </label>
-              <div className="relative flex items-center">
-                <IcoMail
-                  size={16}
-                  className="pointer-events-none absolute left-3.5 text-navy-400"
-                />
-                <input
-                  id="email"
-                  type="email"
-                  placeholder="ім’я@smileclinic.ua"
-                  autoComplete="email"
-                  className={fieldInput}
-                  {...register("email")}
-                />
-              </div>
-              {errors.email && (
-                <span className="text-xs text-red-500">
-                  {errors.email.message}
-                </span>
-              )}
-            </div>
-
-            <div className="relative mb-4 flex flex-col gap-1.5">
-              <label
-                htmlFor="pw"
-                className="text-xs font-medium tracking-[0.04em] text-navy-700"
-              >
-                Пароль
-              </label>
-              <div className="relative flex items-center">
-                <IcoLock
-                  size={16}
-                  className="pointer-events-none absolute left-3.5 text-navy-400"
-                />
-                <input
-                  id="pw"
-                  type={showPw ? "text" : "password"}
-                  placeholder="Введіть пароль"
-                  autoComplete="current-password"
-                  className={cn(fieldInput, "pr-20")}
-                  {...register("password")}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPw((v) => !v)}
-                  className="absolute right-3 rounded-md p-1.5 text-xs text-navy-400 transition-colors hover:text-navy-900"
-                >
-                  {showPw ? "Сховати" : "Показати"}
-                </button>
-              </div>
-              {errors.password && (
-                <span className="text-xs text-red-500">
-                  {errors.password.message}
-                </span>
-              )}
-            </div>
-
-            <div className="my-1 mb-6 flex items-center justify-between">
-              <label className="inline-flex cursor-pointer items-center gap-2 text-[13px] text-navy-400">
-                <input
-                  type="checkbox"
-                  className="h-3.5 w-3.5 accent-mint-600"
-                  {...register("remember")}
-                />
-                Запам’ятати мене
-              </label>
-              <a href="#" className="text-[13px] font-medium text-navy-900 hover:text-mint-600">
-                Забули пароль?
-              </a>
-            </div>
-
-            <button
-              type="submit"
-              disabled={status !== "idle"}
-              className={cn(
-                "inline-flex w-full items-center justify-center gap-2.5 rounded-lg py-3.5 text-[15px] font-medium text-white transition-[background,transform] duration-200 hover:-translate-y-px",
-                status === "success"
-                  ? "bg-mint-600"
-                  : "bg-navy-900 hover:bg-black",
-                status === "submitting" && "opacity-80",
-              )}
-            >
-              {status === "submitting" && "Перевіряємо…"}
-              {status === "success" && "✓ Вітаємо!"}
-              {status === "idle" && (
-                <>
-                  Увійти
-                  <IcoArrow size={16} />
-                </>
-              )}
-            </button>
-
-            {!isStaff && (
-              <>
-                <div className="my-[22px] flex items-center gap-3 text-xs uppercase tracking-[0.08em] text-navy-400 before:h-px before:flex-1 before:bg-[color:var(--line)] after:h-px after:flex-1 after:bg-[color:var(--line)]">
-                  або
+              <div className="relative mb-4 flex flex-col gap-1.5">
+                <label htmlFor="pw" className={fieldLabel}>
+                  Пароль
+                </label>
+                <div className="relative flex items-center">
+                  <IcoLock
+                    size={16}
+                    className="pointer-events-none absolute left-3.5 text-navy-400"
+                  />
+                  <input
+                    id="pw"
+                    type={showPw ? "text" : "password"}
+                    placeholder="Введіть пароль"
+                    autoComplete="current-password"
+                    className={cn(fieldInput, "pr-20")}
+                    {...loginForm.register("password")}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPw((v) => !v)}
+                    className="absolute right-3 rounded-md p-1.5 text-xs text-navy-400 transition-colors hover:text-navy-900"
+                  >
+                    {showPw ? "Сховати" : "Показати"}
+                  </button>
                 </div>
+                {loginForm.formState.errors.password && (
+                  <span className={fieldError}>
+                    {loginForm.formState.errors.password.message}
+                  </span>
+                )}
+              </div>
+
+              <SubmitButton submitting={status === "submitting"}>
+                {submitLabel}
+              </SubmitButton>
+            </form>
+          )}
+
+          {/* ─── Sign-up form ──────────────────────────────────────────────── */}
+          {isSignup && (
+            <form onSubmit={registerForm.handleSubmit(onSignup)} noValidate>
+              <div className="relative mb-4 flex flex-col gap-1.5">
+                <label htmlFor="name" className={fieldLabel}>
+                  Імʼя та прізвище
+                </label>
+                <input
+                  id="name"
+                  type="text"
+                  placeholder="Іван Петренко"
+                  autoComplete="name"
+                  className={cn(fieldInput, "pl-3.5")}
+                  {...registerForm.register("name")}
+                />
+                {registerForm.formState.errors.name && (
+                  <span className={fieldError}>
+                    {registerForm.formState.errors.name.message}
+                  </span>
+                )}
+              </div>
+
+              <div className="relative mb-4 flex flex-col gap-1.5">
+                <label htmlFor="email" className={fieldLabel}>
+                  Email
+                </label>
+                <div className="relative flex items-center">
+                  <IcoMail
+                    size={16}
+                    className="pointer-events-none absolute left-3.5 text-navy-400"
+                  />
+                  <input
+                    id="email"
+                    type="email"
+                    placeholder="ім’я@smileclinic.ua"
+                    autoComplete="email"
+                    className={fieldInput}
+                    {...registerForm.register("email")}
+                  />
+                </div>
+                {registerForm.formState.errors.email && (
+                  <span className={fieldError}>
+                    {registerForm.formState.errors.email.message}
+                  </span>
+                )}
+              </div>
+
+              <div className="relative mb-4 flex flex-col gap-1.5">
+                <label htmlFor="phone" className={fieldLabel}>
+                  Телефон
+                </label>
+                <input
+                  id="phone"
+                  type="tel"
+                  placeholder="+380XXXXXXXXX"
+                  autoComplete="tel"
+                  className={cn(fieldInput, "pl-3.5")}
+                  {...registerForm.register("phone")}
+                />
+                {registerForm.formState.errors.phone && (
+                  <span className={fieldError}>
+                    {registerForm.formState.errors.phone.message}
+                  </span>
+                )}
+              </div>
+
+              <div className="relative mb-4 flex flex-col gap-1.5">
+                <label htmlFor="pw" className={fieldLabel}>
+                  Пароль
+                </label>
+                <div className="relative flex items-center">
+                  <IcoLock
+                    size={16}
+                    className="pointer-events-none absolute left-3.5 text-navy-400"
+                  />
+                  <input
+                    id="pw"
+                    type={showPw ? "text" : "password"}
+                    placeholder="Мінімум 8 символів, з цифрою"
+                    autoComplete="new-password"
+                    className={cn(fieldInput, "pr-20")}
+                    {...registerForm.register("password")}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPw((v) => !v)}
+                    className="absolute right-3 rounded-md p-1.5 text-xs text-navy-400 transition-colors hover:text-navy-900"
+                  >
+                    {showPw ? "Сховати" : "Показати"}
+                  </button>
+                </div>
+                {registerForm.formState.errors.password && (
+                  <span className={fieldError}>
+                    {registerForm.formState.errors.password.message}
+                  </span>
+                )}
+              </div>
+
+              <SubmitButton submitting={status === "submitting"}>
+                {submitLabel}
+              </SubmitButton>
+            </form>
+          )}
+
+          {/* Google OAuth — shown in both tabs */}
+          <div className="my-[22px] flex items-center gap-3 text-xs uppercase tracking-[0.08em] text-navy-400 before:h-px before:flex-1 before:bg-[color:var(--line)] after:h-px after:flex-1 after:bg-[color:var(--line)]">
+            або
+          </div>
+          <button
+            type="button"
+            onClick={handleGoogle}
+            className="inline-flex w-full items-center justify-center gap-2.5 rounded-lg border border-[color:var(--line-2)] bg-white px-3.5 py-3 text-sm font-medium text-navy-900 transition-colors hover:bg-cream"
+          >
+            <IcoGoogle size={18} />
+            Продовжити з Google
+          </button>
+
+          <p className="mt-[22px] text-center text-[13px] text-navy-400">
+            {isSignup ? (
+              <>
+                Вже маєте акаунт?{" "}
                 <button
                   type="button"
-                  onClick={handleGoogle}
-                  className="inline-flex w-full items-center justify-center gap-2.5 rounded-lg border border-[color:var(--line-2)] bg-white px-3.5 py-3 text-sm font-medium text-navy-900 transition-colors hover:bg-cream"
+                  onClick={() => setTab("signin")}
+                  className="border-b border-[color:var(--line-2)] font-medium text-navy-900 hover:border-mint-600 hover:text-mint-600"
                 >
-                  <IcoGoogle size={18} />
-                  Продовжити з Google
+                  Увійти
+                </button>
+              </>
+            ) : (
+              <>
+                Ще не маєте акаунту?{" "}
+                <button
+                  type="button"
+                  onClick={() => setTab("signup")}
+                  className="border-b border-[color:var(--line-2)] font-medium text-navy-900 hover:border-mint-600 hover:text-mint-600"
+                >
+                  Зареєструватися
                 </button>
               </>
             )}
-
-            <p className="mt-[22px] text-center text-[13px] text-navy-400">
-              {isStaff ? (
-                <>
-                  Проблеми зі входом?{" "}
-                  <a
-                    href="#"
-                    className="border-b border-[color:var(--line-2)] font-medium text-navy-900 hover:border-mint-600 hover:text-mint-600"
-                  >
-                    Зв’язатись з IT
-                  </a>
-                </>
-              ) : (
-                <>
-                  Ще не маєте акаунту?{" "}
-                  <a
-                    href="#"
-                    className="border-b border-[color:var(--line-2)] font-medium text-navy-900 hover:border-mint-600 hover:text-mint-600"
-                  >
-                    Зареєструватися
-                  </a>
-                </>
-              )}
-            </p>
-          </form>
+          </p>
         </div>
       </div>
     </div>
+  );
+}
+
+function SubmitButton({
+  submitting,
+  children,
+}: {
+  submitting: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="submit"
+      disabled={submitting}
+      className={cn(
+        "inline-flex w-full items-center justify-center gap-2.5 rounded-lg py-3.5 text-[15px] font-medium text-white transition-[background,transform] duration-200 hover:-translate-y-px",
+        "bg-navy-900 hover:bg-black",
+        submitting && "opacity-80",
+      )}
+    >
+      {children}
+      {!submitting && <IcoArrow size={16} />}
+    </button>
   );
 }
