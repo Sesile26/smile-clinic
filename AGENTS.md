@@ -6,261 +6,213 @@ Visual language: deep navy (#0A1628) + teal/mint (#00C9A7), clean sans-serif typ
 
 ---
 
-## Обов'язково перед будь-якою задачею
+## Hard Rules (тримати в голові завжди)
 
-- Завжди читай цей `AGENTS.md` **перед початком роботи** — він фіксує робочі контракти проекту (стек, конвенції, заборонене).
-- Ознайомся з актуальною структурою (`app/`, `components/`, `lib/`, `hooks/`, `services/`, `prisma/`) — детальна мапа нижче в розділі **Project structure**.
-- Якщо змінюєш структуру (нові файли/каталоги/сервіси/утиліти/іконки) — **одразу** оновлюй цей файл у тому ж коміті. Не "потім".
-- Перед комітом — `npx tsc --noEmit`.
+1. **Перечитуй релевантний розділ перед суттєвою роботою:** нова фіча, новий API-роут, зміна auth/data-шару, створення компонента/іконки/утиліти. Для дрібних правок (текст, відступ, копірайт) досить Hard Rules вгорі — повне перечитування не потрібне. Змінив структуру (файл/каталог/утиліта/іконка/команда) — **онови `AGENTS.md` у тому ж коміті**.
+2. **Перед комітом — `npx tsc --noEmit`.**
+3. **Тільки Tailwind** (класи + arbitrary values). Окремих CSS-файлів для компонентів немає; кольори — лише через зареєстровані токени; жодного `style={{}}`, де працює Tailwind.
+4. **Sharp corners:** `rounded-none` / max `rounded-sm` на основних поверхнях; `rounded-md` лише для badge/pill.
+5. **Сторінка (`app/**/page.tsx`) — тонкий контейнер:** auth-gate + композиція секцій, **нуль бізнес-логіки**.
+6. **SVG-іконки — лише в `components/icons/`** (barrel-імпорт із `index.ts`), ніколи інлайн у JSX.
+7. **Форми — `react-hook-form` + `zod`** (схеми в `schemas/`), ніколи ручний стейт.
+8. **Auth — NextAuth/Auth.js v5, cookie-based (JWT-сесія).** Сервер: `auth()` + гварди `lib/auth-helpers.ts`; клієнт: `signIn/signOut/useSession`. **Жодних `Authorization: Bearer` чи токенів у `localStorage`.**
+9. **Дані клієнта — read-only Dexie-mirror** (server→client, одностороння). Записи — online-only через `/api/*`. Зворотного синку немає.
+10. **Prisma — singleton `lib/prisma.ts`** (не `new PrismaClient()` деінде); типи без `any` без обґрунтування; код не дублювати — виноси в `lib/`, `components/ui/`, `components/icons/`.
+
+Решта — довідка нижче.
+
+---
+
+## Known gaps (виправити при дотику)
+
+Відкриті проблеми — деталі у відповідних розділах нижче, тут лише покажчик:
+
+- **`/api/appointments` і `/api/patients` без auth-гарду** — закрити гардом при будь-якій правці цих роутів. → див. «Route Handlers».
+- **`OfflineBanner` показує «changes will sync», хоча зворотного синку немає** — текст оманливий, переписати; не покладатись на нього. → див. «Дані».
+- **Submit офлайн не оброблений** (падає в загальну помилку) — свідома offline-поведінка ще TODO. → див. «Дані».
+
+---
+
+## Команди
+
+Пакетний менеджер — **npm** (`package-lock.json`).
+
+| Команда | Дія |
+|---|---|
+| `npm run dev` | Next.js dev-сервер |
+| `npm run build` | прод-білд (`next build --webpack`) |
+| `npm start` | прод-сервер |
+| `npm run lint` | ESLint |
+| `npm run icons` | генерація SVG-іконок (`scripts/generate-icons.mjs`) |
+| `npx tsc --noEmit` | перевірка типів (окремого npm-скрипта немає) |
+| `npx prisma migrate dev` | створити + накотити міграцію (dev) |
+| `npx prisma migrate deploy` | накотити міграції (prod) |
+| `npx prisma generate` | перегенерувати клієнт → `lib/generated/prisma` |
+
+---
+
+## Іменування
+
+Виведено з коду — дотримуватись для нового:
+
+- Компоненти і секції — **PascalCase**; секція має суфікс `Section` (`HeroSection.tsx`).
+- Іконки — `Ico<Name>` (`IcoTooth.tsx`); генеруються скриптом, barrel у `components/icons/index.ts`.
+- Хуки — `use<Name>` (`useMirror`).
+- Утиліти/функції — camelCase (`normalizePhone`, `pullMirror`); файли в `lib/` — camelCase (виняток: `auth-helpers.ts`).
+- zod-схеми — файл lowercase (`register.ts`), експорт `<name>Schema` (`registerSchema`).
+- Сервіси — `<resource>Service.ts` (⏳ цільове, у коді ще немає).
+- API-роути — `app/api/<resource>/route.ts`.
 
 ---
 
 ## Структура проекту
 
-- `app/` — Next.js App Router сторінки. Тонкі контейнери — фетч + композиція секцій.
-  - `app/(auth)/login/` — сторінка логіну
-  - `app/(dashboard)/dashboard/` — головний дашборд
-  - `app/(dashboard)/appointments/` — записи на прийом
-  - `app/(dashboard)/patients/` — база пацієнтів
-  - `app/(dashboard)/doctors/` — лікарі
-  - `app/api/` — Next.js API Route Handlers
-- `components/` — компоненти, розкладені по фічах:
-  - `components/ui/` — спільні UI-примітиви
-  - `components/icons/` — SVG-іконки
-  - `components/layout/` — Header, Sidebar, Footer
-  - `components/appointments/` — секції сторінки записів
-  - `components/patients/` — секції сторінки пацієнтів
-  - `components/dashboard/` — секції дашборду
-  - `components/auth/` — форми логіну/реєстрації
-  - `components/home/` — секції головної (лендінг): `HeroSection`, `MarqueeSection`, `ServicesSection`, `StatsSection`, `DoctorsSection`, `TestimonialsSection`, `CtaBannerSection`
-- `lib/` — низькорівневі інструменти: `db.ts` (Dexie/IndexedDB), `prisma.ts`, `sync.ts`, `cn.ts`, `typography.ts` (display-класи), `buttons.ts` (класи кнопок)
-- `hooks/` — кастомні React хуки
-- `schemas/` — zod-схеми форм (`login.ts`, …)
-- `services/` — API-клієнти (один файл = один ресурс)
-- `prisma/` — схема БД та міграції
-- `public/` — статичні файли, manifest.json, іконки PWA
+- `app/` — Next.js App Router. Сторінки — тонкі контейнери (auth-gate + композиція секцій).
+  - `app/page.tsx` — головна (лендінг); `app/(auth)/login/` — логін; `app/offline/` — офлайн-фолбек.
+  - `app/(dashboard)/{dashboard,appointments,patients}/` — кабінет.
+  - `app/api/` — Route Handlers: `appointments/` (+`[id]`), `patients/`, `register/`, `mirror/`, `auth/[...nextauth]/`.
+- `components/` — за фічами:
+  - `ui/` — спільні UI-примітиви; `layout/` — `Header`, `Footer`; `icons/` — SVG (1 файл = 1 іконка);
+  - `auth/` — `SessionProvider`, `AuthButtons`; `home/` — секції лендінгу (`HeroSection`, `ServicesSection`, `DoctorsSection`, …).
+- `lib/` — `prisma.ts`, `db.ts` (Dexie), `mirror.ts` (pull), `auth-helpers.ts`, `cn.ts`, `typography.ts`, `buttons.ts`, `normalizePhone.ts`.
+- `hooks/` — кастомні React-хуки. `schemas/` — zod-схеми (`login.ts`, `register.ts`).
+- `prisma/` — схема та міграції. Згенерований клієнт — `lib/generated/prisma` (кастомний output).
+- `auth.ts` / `auth.config.ts` — Auth.js (split-config). `middleware.ts` — edge-guard. `public/` — статика, `manifest.json`.
 
 ---
 
 ## Стилі
 
-- **Тільки Tailwind-класи + arbitrary values.** Окремі CSS-файли для компонентів **заборонені**. Виняток: глобальні класи в `app/globals.css` для речей, які Tailwind не покриває (псевдо-елементи, складні animations, дочірні селектори).
-- **Кольори — лише через зареєстровані Tailwind-токени** (`bg-navy-900`, `text-mint`, `bg-cream`). Повний список — у `tailwind.config.ts`. Проект на **Tailwind v4**: конфіг підключається через `@config "../tailwind.config.ts"` в `app/globals.css`. Шкала: `navy-900/800/700/400`, `mint`/`mint-600`/`mint-100`, `cream`, `bone`, `ink`, `paper`. Шрифти: `font-serif` (Cormorant Garamond), `font-sans` (DM Sans). Тіні: `shadow-s1/s2/s3`. Easing: `ease-smooth`.
-- **Не використовувати `rgba(...)` для відомих кольорів** — тільки токени. Виняток: `rgba` всередині складних arbitrary values (gradients у `[background:...]`, `shadow-[...]`).
-- Sharp corners скрізь — `rounded-none` або max `rounded-sm` на основних поверхнях. `rounded-md` лише для badge/pill елементів.
+- **Tailwind v4:** конфіг підключається через `@config "../tailwind.config.ts"` в `app/globals.css`. Окремі CSS-файли для компонентів заборонені. Виняток — глобальні класи в `app/globals.css` для того, що Tailwind не покриває (псевдо-елементи, складні animations, дочірні селектори).
+- **Кольори — лише зареєстровані токени** (`bg-navy-900`, `text-mint`, `bg-cream`). Шкала: `navy-900/800/700/400`, `mint`/`mint-600`/`mint-100`, `cream`, `bone`, `ink`, `paper`. Шрифти: `font-serif` (Cormorant Garamond), `font-sans` (DM Sans). Тіні: `shadow-s1/s2/s3`. Easing: `ease-smooth`. Повний список — `tailwind.config.ts`.
+- **Без `rgba(...)` для відомих кольорів** — тільки токени. Виняток: `rgba` всередині складних arbitrary values (gradients у `[background:...]`, `shadow-[...]`).
 
 ---
 
 ## Компоненти
 
-- **Всі стилі — через Tailwind.** Окремі CSS-файли для компонентів заборонені.
-- **Великі сторінки розбивати на підкомпоненти** в `components/<page>/<Section>.tsx`. Кожна секція самодостатня — свій рендер блоку + per-action loading state. Приклади: `appointments/{AppointmentList,AppointmentForm,AppointmentFilter}Section.tsx`, `patients/{PatientCard,PatientHistory,PatientForm}Section.tsx`.
-- **SVG-іконки — в `components/icons/`** (один файл = одна іконка). Імпорт через barrel: `import { IcoCalendar, IcoTooth } from '@/components/icons'`. Кожна іконка приймає `className?: string`, `size?: number`, `strokeWidth?: number`.
-- **Спільні UI-блоки — в `components/ui/`.** Перш ніж писати новий — перевір, чи вже є аналог у `ui/`.
-- **Форми — `react-hook-form` + `zod`** (схеми в `schemas/`). Не керувати стейтом форми вручну.
-- **Сторінка — тонкий контейнер.** Вся UI-сітка живе в дочірніх компонентах. Сторінка лише: auth gate + композиція секцій.
+- **Великі сторінки → секції** в `components/<фіча>/<Section>.tsx`. Кожна секція самодостатня (свій рендер + per-action loading).
+- **Спільні UI-блоки — в `components/ui/`.** Перш ніж писати новий примітив — перевір, чи вже є аналог.
 
----
-
-## UI-примітиви (`components/ui/`)
-
-Перед створенням нового компонента — перевір цей список:
+### UI-примітиви (`components/ui/`)
 
 | Компонент | Призначення |
 |---|---|
-| `Button` | Кнопки (primary, secondary, ghost, danger) |
-| `Card` | Базова картка з border |
-| `Input` | Поле вводу |
-| `Select` | Випадаючий список |
-| `Badge` | Статус-бейдж (pending, confirmed, done, cancelled) |
-| `Modal` | Модальне вікно |
-| `Spinner` | Індикатор завантаження |
-| `OfflineBanner` | Банер при відсутності інтернету |
-| `SyncStatus` | Статус синхронізації з сервером |
-| `AppointmentCard` | Картка запису на прийом |
-| `PatientCard` | Картка пацієнта |
-| `Container` | Центрований 1280px-контейнер (`.container`) |
-| `Reveal` | Scroll-reveal обгортка (IntersectionObserver → клас `in`) |
+| `Container` | Центрований 1280px-контейнер |
+| `SectionHeader` | Заголовок секції (title + lede) |
 | `Eyebrow` | Надзаголовок з мʼятною крапкою |
-| `SectionHeader` | 2-колонковий заголовок секції (title + lede) |
-| `LoginModal` | Модалка логіну (таби Пацієнт/Персонал, rhf+zod) |
+| `Reveal` | Scroll-reveal обгортка (IntersectionObserver) |
+| `AppointmentCard` | Картка запису на прийом |
+| `OfflineBanner` | Банер при відсутності інтернету |
+| `LoginModal` | Модалка логіну/реєстрації (таби, rhf+zod) |
 | `LoginModalProvider` | Контекст `useLoginModal()` (open/close) |
 
----
+### Іконки (`components/icons/`)
 
-## Іконки (`components/icons/`)
-
-Один файл = одна іконка. Barrel-імпорт через `index.ts`.
-
-| Іконка | Файл |
-|---|---|
-| `IcoTooth` | `IcoTooth.tsx` |
-| `IcoCalendar` | `IcoCalendar.tsx` |
-| `IcoUser` | `IcoUser.tsx` |
-| `IcoClose` | `IcoClose.tsx` |
-| `IcoChevron` | `IcoChevron.tsx` |
-| `IcoCheck` | `IcoCheck.tsx` |
-| `IcoSearch` | `IcoSearch.tsx` |
-| `IcoSync` | `IcoSync.tsx` |
-| `IcoWifi` | `IcoWifi.tsx` |
-| `IcoPlus` | `IcoPlus.tsx` |
-| `IcoArrow` | `IcoArrow.tsx` |
-| `IcoStar` | `IcoStar.tsx` |
-| `IcoShield` | `IcoShield.tsx` |
-| `IcoClock` | `IcoClock.tsx` |
-| `IcoMail` | `IcoMail.tsx` |
-| `IcoLock` | `IcoLock.tsx` |
-| `IcoId` | `IcoId.tsx` |
-| `IcoMenu` | `IcoMenu.tsx` |
-| `IcoSparkle` / `IcoImplant` / `IcoBraces` / `IcoChild` / `IcoCrown` / `IcoEmergency` | гліфи послуг |
-| `IcoInstagram` / `IcoFacebook` / `IcoTelegram` / `IcoYoutube` | соц-мережі |
-| `IcoGoogle` | мультиколірний бренд-логотип (фікс. кольори) |
-
-Кожна іконка: `className?: string`, `size?: number` (default 24), `strokeWidth?: number` (default залежить від іконки, базово 1.5). Спільний тип — `IconProps` (`components/icons/IconProps.ts`), barrel — `components/icons/index.ts`.
+Один файл = одна іконка; barrel-імпорт: `import { IcoTooth } from '@/components/icons'`. **Актуальний перелік — у `components/icons/index.ts`** (не дублювати тут вручну). Кожна іконка: `className?: string`, `size?: number` (default 24), `strokeWidth?: number` (база 1.5). Спільний тип — `IconProps` (`components/icons/IconProps.ts`). `IcoGoogle` — мультиколірний бренд-логотип з фіксованими кольорами.
 
 ---
 
-## Сервіси (API)
+## Auth (NextAuth / Auth.js v5)
 
-- Всі HTTP-запити — **через сервіси в `services/`**. Не викликай fetch напряму з компонентів.
-- **Один файл = один ресурс:** `appointmentService.ts`, `patientService.ts`, `doctorService.ts`, `authService.ts`.
-- Авторизовані запити — через спільний `api` instance. Request interceptor читає токен і додає `Authorization: Bearer <token>`.
-- **Авторизація через `Authorization: Bearer` header**, не cookies. Токен зберігається в `localStorage['token']`.
-- Запис / читання / очистка токена — **лише через `setToken()` / `readToken()` / `clearToken()`** з `services/api.ts`. Прямі `localStorage.setItem('token', …)` поза `api.ts` заборонені.
-
----
-
-## Хуки (`hooks/`)
-
-| Хук | Призначення |
-|---|---|
-| `useAppointments` | CRUD для записів (IndexedDB + sync) |
-| `usePatients` | CRUD для пацієнтів |
-| `useOnlineStatus` | `{ isOnline: boolean }` |
-| `useSync` | `{ isSyncing, pendingCount, triggerSync }` |
-| `useAuth` | `{ user, login, logout, isAuthenticated }` |
-
-Всі хуки — TypeScript. Перевірка `typeof window !== 'undefined'` для SSR-сумісності.
+- **Cookie-based JWT-сесія** (`session.strategy = "jwt"`, httpOnly-cookie). JWT обовʼязковий через Credentials-провайдер. Жодного Bearer/`localStorage`.
+- **Split-config:** `auth.config.ts` — edge-safe (Google-провайдер, `pages.signIn`), вживається в `middleware.ts`. `auth.ts` — повний (PrismaAdapter + Credentials + callbacks), експортує `{ handlers, signIn, signOut, auth }`.
+- **Провайдери:** Google OAuth + Credentials (email/пароль, `bcrypt`). Credentials валідує `schemas/login.ts` (`loginSchema`, в `auth.ts`); реєстрація `/api/register` — окремо `schemas/register.ts` (`registerSchema`). Дві різні схеми, не плутати.
+- **Сесія несе** `user.id`, `user.role` (`Role`), `user.patientId` (callbacks `jwt`/`session`).
+- **Сервер:** `await auth()`; рольові гварди — `lib/auth-helpers.ts` (`requireAuth(roles?)`, `requireStaff`, `requireAdmin`, `requirePatient`) з редіректом на `/login`.
+- **Клієнт:** `signIn`/`signOut`/`useSession` з `next-auth/react`; кореневий `components/auth/SessionProvider.tsx`.
+- **`Role` (enum у `prisma/schema.prisma`):** `ADMIN`, `STAFF`, `PATIENT` (дефолт `PATIENT`).
+- **Ролі:** призначаються в event `createUser` за списками `AUTH_ADMIN_EMAILS` / `AUTH_STAFF_EMAILS`; інакше `PATIENT` (з привʼязкою до `Patient` за email).
+- **Route handler:** `app/api/auth/[...nextauth]/route.ts` ре-експортує `handlers`.
 
 ---
 
-## IndexedDB / Offline (Dexie)
+## Дані: read-only Dexie-mirror
 
-- Локальна БД — `lib/db.ts` через `Dexie.js`.
-- **Offline-first:** завжди зберігати в IndexedDB спочатку, потім синхронізувати з PostgreSQL.
-- Синхронізація — `lib/sync.ts`. Авто-запуск при `window.addEventListener('online', syncAll)`.
-- Статуси запису: `'pending'` → `'synced'` / `'failed'`.
-- **Таблиці IndexedDB:** `appointments`, `patients`.
+- **Server (Postgres) — єдине джерело правди.** `lib/mirror.ts` `pullMirror()` тягне рольовий зріз із `/api/mirror` і **атомарно** (clear+bulkPut в одній Dexie-транзакції) перезаписує локальну БД. Потік **строго односторонній** server→Dexie; зворотного синку **немає**.
+- **Записи — online-only** через `/api/*`. Єдиний реальний клієнтський запис сьогодні — **реєстрація** (`LoginModal` → `/api/register`); форм бронювання/пацієнтів ще немає (сторінки кабінету — заглушки `<div>…</div>`). **Offline-обробки submit немає:** кнопка офлайн не дізейблиться, інлайн-попередження немає — `fetch` падає, показується загальна помилка «Щось пішло не так». Єдиний офлайн-сигнал — глобальний `OfflineBanner` (пасивний, дисмісабельний; його текст «changes will sync» оманливий — зворотного синку немає). **TODO:** свідома offline-поведінка submit + чесний текст банера.
+- **Dexie** — `lib/db.ts` (`ClinicDatabase`, v2). Таблиці: `appointments`, `patients`, `doctors`, `profile`.
+- **Lifecycle** — `hooks/useMirror.ts` (монтуєтся раз у `SessionProvider`): pull при вході/зміні юзера, re-pull на `online`, **wipe Dexie при signOut** (щоб на спільному пристрої дані не текли). 401 → wipe; offline/5xx → лишити попередній зріз.
+- **Читання в UI** — Dexie-хуки (`useAppointments` через `useLiveQuery`). `/api/mirror` — `NetworkOnly`, без кешу.
+
+---
+
+## Сервіси та типи — ⏳ цільова конвенція (ще не реалізовано)
+
+> У коді **поки немає** `services/` і `types/`. Зараз: читання — через Dexie-хуки + `/api/mirror`; мутації — `fetch` до `/api/*` прямо з компонента. Нижче — цільовий контракт, до якого приводити новий код.
+
+- **API-запити — через сервіси в `services/`** (один файл = один ресурс, напр. `appointmentService.ts`); не розкидати `fetch` по компонентах.
+- **Спільні API-типи — в `types/`** (`types/<ресурс>.ts`).
+
+---
+
+## Route Handlers — помилки та статус-коди
+
+Наявні роути (`appointments`, `appointments/[id]`, `patients`, `register`, `mirror`) дотримуються єдиного патерна — застосовувати його й для нових:
+
+- Тіло помилки — завжди JSON **`{ error: string }`** (людиночитане повідомлення).
+- Парсинг: `try { await request.json() } catch` → `{ error: "Invalid JSON" }`, **400**.
+- Невалідне/неповне тіло → **400**; не знайдено (Prisma `P2025`) → **404**; дубль/унікальність (`P2002`) → **409**; неавторизовано → **401**.
+- Інша помилка — `console.error(...)` + `{ error: "…" }`, **500**.
+- Успіх: ресурс у JSON (**200**), створення — **201**, видалення — **204** (порожнє тіло).
+
+Реальні відхилення від патерна (не вигадані):
+- `/api/register` для zod-помилок повертає **структурований** `{ error: "validation", details: [{ path, message }] }` — єдиний роут із `details`; решта кладуть текст прямо в `error`. Цільово — поширити цей формат на валідацію всюди.
+- `/api/appointments` і `/api/patients` **не мають auth-гарду** (401/403 не повертають), на відміну від `/api/mirror` (стартує з `auth()`). **TODO:** закрити мутаційні роути гардом.
 
 ---
 
 ## Prisma / PostgreSQL
 
-- Схема — `prisma/schema.prisma`.
-- Prisma Client singleton — `lib/prisma.ts`. Не створювати `new PrismaClient()` поза цим файлом.
-- Міграції — `npx prisma db push` (dev) / `npx prisma migrate deploy` (prod).
-- **Моделі:** `Patient`, `Doctor`, `Appointment`, `User`.
+- Схема — `prisma/schema.prisma`. Клієнт-singleton — `lib/prisma.ts` (не створювати `new PrismaClient()` деінде).
+- Міграції: `npx prisma migrate dev` (створити) / `npx prisma migrate deploy` (накотити); після зміни схеми — `npx prisma generate` (output → `lib/generated/prisma`).
+- **Моделі:** `Patient`, `Doctor`, `Appointment`, `User`, `Account`, `Session`, `VerificationToken` (останні три — адаптер Auth.js).
+
+---
+
+## Хуки (`hooks/`)
+
+| Хук | Повертає / робить |
+|---|---|
+| `useAppointments` | `LocalAppointment[]` — read-only Dexie-зріз (`useLiveQuery`) |
+| `useMirror` | `{ status, lastPullAt, retry }` — оркеструє pull/​wipe мірора |
+| `useOnlineStatus` | `{ isOnline: boolean }` |
+
+Всі хуки TS, із перевіркою `typeof window !== 'undefined'` для SSR.
+
+---
+
+## Утиліти (`lib/`)
+
+| Утиліта | Файл |
+|---|---|
+| `cn(...classes)` | `cn.ts` |
+| `displayXl/L/M`, `lede` | `typography.ts` |
+| `btnBase/btnPrimary/btnMint/btnGhost/btnLink` | `buttons.ts` |
+| `normalizePhone` | `normalizePhone.ts` (канон `+380XXXXXXXXX`; вживати і в zod-трансформі, і в API) |
+| `pullMirror` | `mirror.ts` |
+| `requireAuth/requireStaff/requireAdmin/requirePatient` | `auth-helpers.ts` |
 
 ---
 
 ## PWA
 
-- Конфіг — `next.config.js` через `@ducanh2912/next-pwa`.
-- Manifest — `public/manifest.json`.
-- `turbopack: {}` обов'язково в `next.config.js` (Next.js 16 сумісність).
-- Service Worker вимкнений в `development` режимі.
-
----
-
-## Утиліти (`lib/` та `utils/`)
-
-| Утиліта | Файл |
-|---|---|
-| `cn(...classes)` | `lib/cn.ts` |
-| `displayXl`, `displayL`, `displayM`, `lede` | `lib/typography.ts` |
-| `btnBase`, `btnPrimary`, `btnMint`, `btnGhost`, `btnLink` | `lib/buttons.ts` |
-| `formatDate`, `formatTime` | `lib/formatDate.ts` |
-| `formatPhone` | `lib/formatPhone.ts` |
-| `normalizePhone` | `lib/normalizePhone.ts` |
-| `getStatusColor`, `getStatusLabel` | `lib/appointmentStatus.ts` |
-
----
-
-## Типи (`types/`)
-
-- Всі API-типи — в `types/`.
-- `types/appointment.ts`, `types/patient.ts`, `types/doctor.ts`, `types/user.ts`.
-- **Заборонено `any` без обґрунтування.**
-
----
-
-## Заборонено
-
-- ❌ Окремі CSS-файли для компонентів. Виняток — глобальні класи в `app/globals.css`.
-- ❌ Хардкодити кольори через `rgba(...)` коли є зареєстрований токен.
-- ❌ Дублювати код між файлами — виноси в `lib/`, `components/icons/`, `components/ui/`.
-- ❌ Викликати API напряму з компонентів (fetch/axios) — тільки через `services/*`.
-- ❌ `any` без обґрунтування. Типи живуть у `types/`.
-- ❌ Створювати новий `PrismaClient()` поза `lib/prisma.ts`.
-- ❌ Читати/писати токен через `localStorage` напряму поза `services/api.ts`.
-- ❌ Бізнес-логіка в сторінках (`app/**/page.tsx`) — тільки композиція компонентів.
-- ❌ SVG-іконки інлайном в JSX — всі іконки живуть в `components/icons/`.
-- ❌ Стилі через `style={{}}` prop коли можна через Tailwind.
+- Конфіг — `next.config.ts` через `@ducanh2912/next-pwa`. Manifest — `public/manifest.json`.
+- `turbopack: {}` обовʼязково (сумісність Next.js 16). Service Worker вимкнено в `development`.
+- `/api/mirror` — `NetworkOnly` (кешування заборонено).
 
 ---
 
 ## Environment variables
 
 ```
-DATABASE_URL          # PostgreSQL connection string (Supabase)
-NEXTAUTH_SECRET       # NextAuth secret key
-NEXTAUTH_URL          # App URL (http://localhost:3000 для dev)
-NEXT_PUBLIC_APP_URL   # Публічний URL додатку
+DATABASE_URL          # PostgreSQL connection string
+AUTH_SECRET           # Auth.js secret
+AUTH_URL              # App URL (http://localhost:3000 для dev)
+AUTH_GOOGLE_ID        # Google OAuth client id
+AUTH_GOOGLE_SECRET    # Google OAuth client secret
+AUTH_ADMIN_EMAILS     # CSV email-ів → роль ADMIN
+AUTH_STAFF_EMAILS     # CSV email-ів → роль STAFF
 ```
 
 Зберігати в `.env.local` (не комітити).
-
----
-
-## Session flow
-
-1. App mount: якщо `localStorage['token']` існує — відновити сесію через `getCurrentUser()`.
-2. Login: POST `/api/auth/login` → `setToken(token)` + оновити стан `useAuth`.
-3. Logout: `clearToken()` + очистити стан `useAuth`.
-4. 401 response: interceptor автоматично викликає `clearToken()` + redirect на `/login`.
-
----
-
-## Working agreements
-
-- Перед будь-якою UI задачею читати `AGENTS.md`.
-- `app/**/page.tsx` — **тільки UI shell**: auth gate + композиція секцій. Нуль бізнес-логіки.
-- Prefer **typed** code. Всі API типи в `types/`.
-- Компоненти розміщувати в `components/<фіча>/` — папка за фічею.
-- Великі сторінки розбивати на секції в `components/<назва сторінки>/`.
-- SVG іконки — **завжди** в `components/icons/`, barrel-імпорт.
-- Форми — `react-hook-form` + `zod`. Ніколи вручну.
-- API — тільки через `services/*`.
-- Після будь-якої зміни структури — одразу оновлювати цей `AGENTS.md`.
-- Після кожної фічі — `npx tsc --noEmit` перед комітом.
-
----
-
-## Додавання нового компонента — чеклист
-
-1. Перевір `components/ui/` — можливо вже є аналог.
-2. Визнач фічу → створи в `components/<фіча>/`.
-3. Якщо потрібна нова іконка → `components/icons/IcoНазва.tsx` + додай в `index.ts`.
-4. Стилі — тільки Tailwind.
-5. Props — TypeScript інтерфейс.
-6. Якщо новий файл — оновити цей `AGENTS.md`.
-
----
-
-## Додавання нового API endpoint — чеклист
-
-1. Route handler → `app/api/<ресурс>/route.ts`.
-2. Prisma запит → через `lib/prisma.ts` singleton.
-3. Сервісна функція → `services/<ресурс>Service.ts`.
-4. Тип відповіді → `types/<ресурс>.ts`.
-5. Хук якщо потрібен → `hooks/use<Ресурс>.ts`.
