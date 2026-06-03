@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { signOut, useSession } from "next-auth/react";
 import { cn } from "@/lib/cn";
+import { wipeDexie } from "@/lib/db";
 import { btnBase, btnMint } from "@/lib/buttons";
 import { useLoginModal } from "@/components/ui/LoginModalProvider";
 import { IcoArrow, IcoMenu, IcoTooth } from "@/components/icons";
@@ -86,8 +87,13 @@ function AvatarMenu({ user }: AvatarMenuProps) {
     .charAt(0)
     .toUpperCase();
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
     setOpen(false);
+    // SECURITY: drop the Dexie mirror BEFORE the session cookie is cleared.
+    // On a shared device this is what prevents the next user from seeing
+    // the previous user's appointments via useLiveQuery (the SW caches only
+    // public assets; user data lives in IndexedDB).
+    await wipeDexie();
     void signOut({ callbackUrl: "/" });
   };
 
