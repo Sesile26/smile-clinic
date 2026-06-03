@@ -3,9 +3,11 @@ import bcrypt from "bcryptjs";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { Role } from "@/lib/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
+import { normalizePhone } from "@/lib/normalizePhone";
 import { registerSchema } from "@/schemas/register";
 
 const BCRYPT_COST = 12;
+const PHONE_TAKEN = "Цей номер телефону вже використовується";
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -30,8 +32,12 @@ export async function POST(request: Request) {
     );
   }
 
-  const { name, phone, password } = parsed.data;
+  const { name, password } = parsed.data;
   const email = parsed.data.email.toLowerCase();
+  // Re-normalise on the server even though the zod transform already did it:
+  // never trust the client, and keep the canonical form a property of THIS
+  // module rather than of the schema's transform order.
+  const phone = normalizePhone(parsed.data.phone);
 
   // Fast-fail path before the expensive bcrypt.hash (~250ms at cost 12).
   // The DB-level P2002 catch below still covers the TOCTOU race between this
@@ -43,6 +49,19 @@ export async function POST(request: Request) {
         error:
           "Цей email уже використовується. Спробуйте увійти існуючим методом.",
       },
+      { status: 409 },
+    );
+  }
+
+  // Phone uniqueness (canonical form). A match on a patient with a DIFFERENT
+  // email is a genuine conflict → 409. A match on the SAME email is the
+  // documented "self-register against an admin-created Patient" flow (the
+  // upsert below attaches to it), so we must NOT block it. The DB unique
+  // index + the P2002 catch below close the race for cross-patient dupes.
+  const existingPhone = await prisma.patient.findUnique({ where: { phone } });
+  if (existingPhone && existingPhone.email.toLowerCase() !== email) {
+    return NextResponse.json(
+      { error: PHONE_TAKEN, field: "phone" },
       { status: 409 },
     );
   }
@@ -77,13 +96,25 @@ export async function POST(request: Request) {
     // (it would include passwordHash via Prisma's default selection).
     return NextResponse.json({ ok: true, userId: user.id }, { status: 201 });
   } catch (err) {
-    // P2002 = unique violation. Could be User.email (race) or User.patientId
-    // (an existing User is already linked to this Patient). Both surfaces map
-    // to the same UX message — "this email is taken, sign in instead".
+    // P2002 = unique violation, racing the pre-checks above.
+    //   • Patient.phone  → "this phone is taken" (field: phone).
+    //   • User.email / User.patientId / Patient.email → "this email is taken".
+    // meta.target is a string[] of column names (or the constraint name) —
+    // accept both shapes so we stay robust to the driver adapter.
     if (
       err instanceof Prisma.PrismaClientKnownRequestError &&
       err.code === "P2002"
     ) {
+      const target = err.meta?.target;
+      const onPhone = Array.isArray(target)
+        ? target.includes("phone")
+        : typeof target === "string" && target.includes("phone");
+      if (onPhone) {
+        return NextResponse.json(
+          { error: PHONE_TAKEN, field: "phone" },
+          { status: 409 },
+        );
+      }
       return NextResponse.json(
         {
           error:

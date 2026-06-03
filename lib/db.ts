@@ -35,7 +35,8 @@ export interface LocalPatient {
   id: string;
   name: string;
   email: string | null;
-  phone: string;
+  /** Null for Google-only patients — that flow never collects a phone. */
+  phone: string | null;
   lastMirroredAt: number;
 }
 

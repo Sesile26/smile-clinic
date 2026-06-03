@@ -181,6 +181,7 @@ Visual language: deep navy (#0A1628) + teal/mint (#00C9A7), clean sans-serif typ
 | `btnBase`, `btnPrimary`, `btnMint`, `btnGhost`, `btnLink` | `lib/buttons.ts` |
 | `formatDate`, `formatTime` | `lib/formatDate.ts` |
 | `formatPhone` | `lib/formatPhone.ts` |
+| `normalizePhone` | `lib/normalizePhone.ts` |
 | `getStatusColor`, `getStatusLabel` | `lib/appointmentStatus.ts` |
 
 ---

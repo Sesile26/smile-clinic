@@ -85,7 +85,11 @@ model Patient {
   id           String        @id @default(cuid())
   name         String
   email        String        @unique
-  phone        String
+  // Nullable + unique: Google-реєстрація не збирає телефон (Google його не
+  // віддає), а Postgres unique-індекс дозволяє кілька NULL — Google-користувачі
+  // не конфліктують. Email-реєстрація завжди зберігає канонічний +380XXXXXXXXX
+  // (див. normalizePhone), тож кожен номер належить рівно одному пацієнту.
+  phone        String?       @unique
   createdAt    DateTime      @default(now())
   appointments Appointment[]
   user         User?

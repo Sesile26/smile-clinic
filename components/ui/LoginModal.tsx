@@ -192,13 +192,25 @@ export function LoginModal({ open, onClose }: LoginModalProps) {
 
       if (!res.ok) {
         let message = "Не вдалося створити акаунт";
+        let field: string | undefined;
         try {
-          const data = (await res.json()) as { error?: string };
+          const data = (await res.json()) as {
+            error?: string;
+            field?: string;
+          };
           if (data.error) message = data.error;
+          field = data.field;
         } catch {
           /* keep default */
         }
-        setFormError(message);
+        // A phone conflict (409) is shown inline under the phone field,
+        // separate from the email/global error banner.
+        if (res.status === 409 && field === "phone") {
+          registerForm.setError("phone", { type: "server", message });
+          registerForm.setFocus("phone");
+        } else {
+          setFormError(message);
+        }
         setStatus("idle");
         return;
       }
