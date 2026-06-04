@@ -1,0 +1,113 @@
+"use client";
+
+import { forwardRef } from "react";
+import { cn } from "@/lib/cn";
+
+/**
+ * Visual variant of a single slot. Kept separate from {@link SlotStatus} on
+ * purpose: the patient view also needs a "selected" look that the data layer
+ * doesn't know about.
+ */
+export type SlotVariant = "off" | "working" | "booked" | "free" | "selected";
+
+interface SlotButtonProps {
+  time: string;
+  variant: SlotVariant;
+  /** Disables interaction but keeps the slot visible (offline / read-only). */
+  disabled?: boolean;
+  /** Roving-tabindex: only the active cell is in the tab order. */
+  tabIndex?: number;
+  onClick?: () => void;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLButtonElement>) => void;
+  onFocusCapture?: () => void;
+  className?: string;
+}
+
+const VARIANT_CLASS: Record<SlotVariant, string> = {
+  // doctor view — not working: subtle, invites a click
+  off: "border-[color:var(--line-2)] bg-white text-navy-400 hover:border-navy-900 hover:text-navy-900",
+  // doctor view — working: mint fill, the "я працюю" state
+  working:
+    "border-mint bg-mint-100 text-navy-900 hover:bg-mint/30 aria-pressed:border-mint",
+  // both views — booked: locked navy chip, never actionable
+  booked:
+    "border-navy-900/15 bg-navy-900/[0.06] text-navy-400 cursor-not-allowed",
+  // patient view — a free slot to grab
+  free: "border-mint/60 bg-white text-navy-900 hover:border-mint hover:bg-mint-100",
+  // patient view — the slot currently chosen in the confirm flow
+  selected: "border-mint bg-mint text-navy-900 shadow-s1",
+};
+
+/**
+ * One time slot. Always a real <button type="button"> so it is keyboard- and
+ * screen-reader-friendly; the parent grids wire up arrow-key roving focus.
+ */
+export const SlotButton = forwardRef<HTMLButtonElement, SlotButtonProps>(
+  function SlotButton(
+    {
+      time,
+      variant,
+      disabled,
+      tabIndex,
+      onClick,
+      onKeyDown,
+      onFocusCapture,
+      className,
+    },
+    ref,
+  ) {
+    const isBooked = variant === "booked";
+    const isToggle = variant === "off" || variant === "working";
+
+    const label = isBooked
+      ? `${time} — зайнято, є запис`
+      : variant === "working"
+        ? `${time} — працюю`
+        : `${time} — вільно`;
+
+    return (
+      <button
+        ref={ref}
+        type="button"
+        disabled={disabled || isBooked}
+        tabIndex={tabIndex}
+        onClick={onClick}
+        onKeyDown={onKeyDown}
+        onFocusCapture={onFocusCapture}
+        aria-label={label}
+        aria-pressed={isToggle ? variant === "working" : undefined}
+        title={isBooked ? "Зайнято — є запис" : undefined}
+        className={cn(
+          "flex w-full items-center justify-center gap-1 rounded-lg border px-2 py-2 text-[13px] font-medium tabular-nums transition-colors duration-150",
+          "focus:outline-none focus-visible:ring-2 focus-visible:ring-mint focus-visible:ring-offset-1",
+          "disabled:cursor-not-allowed",
+          VARIANT_CLASS[variant],
+          disabled && !isBooked && "opacity-50",
+          className,
+        )}
+      >
+        <span>{time}</span>
+        {isBooked && (
+          <span aria-hidden="true" className="text-[10px] uppercase tracking-wide">
+            ·зайнято
+          </span>
+        )}
+        {variant === "working" && (
+          <svg
+            aria-hidden="true"
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+        )}
+      </button>
+    );
+  },
+);
