@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { DM_Sans, Cormorant_Garamond } from "next/font/google";
 import { SessionProvider } from "@/components/auth/SessionProvider";
+import { ServiceWorkerCleanup } from "@/components/pwa/ServiceWorkerCleanup";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -40,6 +41,7 @@ export default function RootLayout({
       className={`${dmSans.variable} ${cormorant.variable} h-full antialiased`}
     >
       <body className="min-h-full font-sans text-navy-900">
+        <ServiceWorkerCleanup />
         <SessionProvider>{children}</SessionProvider>
       </body>
     </html>
