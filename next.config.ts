@@ -27,9 +27,12 @@ const runtimeCaching: RuntimeCaching[] = [
   // ─── DENY: Per-user / clinical data routes ───────────────────────────────
   // We never want a previous user's data served from cache to the next user
   // on a shared device. Mirror endpoint included — Dexie is the offline read
-  // path, not the SW cache.
+  // path, not the SW cache. Slots/bookings are live-only: a stale free slot
+  // from cache would invite double-booking, so they must never be served from
+  // the SW.
   {
-    urlPattern: /^\/api\/(appointments|patients|doctors|mirror)(\/.*)?$/i,
+    urlPattern:
+      /^\/api\/(appointments|patients|doctors|mirror|slots|bookings)(\/.*)?$/i,
     handler: "NetworkOnly",
   },
   // ─── DENY: RSC payloads ──────────────────────────────────────────────────

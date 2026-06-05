@@ -123,8 +123,15 @@ export function ErrorBanner({ onRetry }: { onRetry?: () => void }) {
   );
 }
 
-/** Offline notice shown above a read-only patient calendar. */
-export function OfflineNotice({ className }: { className?: string }) {
+/** Offline notice shown above a read-only calendar. */
+export function OfflineNotice({
+  className,
+  message,
+}: {
+  className?: string;
+  /** Override the default (patient-oriented) copy. */
+  message?: React.ReactNode;
+}) {
   return (
     <div
       role="status"
@@ -139,8 +146,15 @@ export function OfflineNotice({ className }: { className?: string }) {
         className="inline-block h-2 w-2 shrink-0 rounded-full bg-yellow-500"
       />
       <span>
-        Ви офлайн. Розклад показано лише для перегляду —{" "}
-        <strong className="font-medium">бронювання доступне лише онлайн</strong>.
+        {message ?? (
+          <>
+            Ви офлайн. Розклад показано лише для перегляду —{" "}
+            <strong className="font-medium">
+              бронювання доступне лише онлайн
+            </strong>
+            .
+          </>
+        )}
       </span>
     </div>
   );

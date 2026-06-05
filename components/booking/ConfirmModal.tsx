@@ -13,6 +13,10 @@ interface ConfirmModalProps {
   doctor: Doctor | null;
   date: Date | null;
   time: string | null;
+  /** In-flight booking request — disables the actions. */
+  submitting?: boolean;
+  /** Server-side failure (e.g. the slot was just taken). */
+  error?: string | null;
   onConfirm: () => void;
   onClose: () => void;
 }
@@ -31,6 +35,8 @@ export function ConfirmModal({
   doctor,
   date,
   time,
+  submitting = false,
+  error = null,
   onConfirm,
   onClose,
 }: ConfirmModalProps) {
@@ -144,10 +150,10 @@ export function ConfirmModal({
                   <span className="font-medium text-navy-900">
                     {formatDayLong(date)} о {time}
                   </span>
-                  . Це демо: реальний запис не створено.
+                  . Запис підтверджено.
                 </>
               ) : (
-                "Це демонстрація — реальний запис не створено."
+                "Ваш запис підтверджено."
               )}
             </p>
             <button
@@ -178,18 +184,34 @@ export function ConfirmModal({
               <Row term="Час" value={time ?? "—"} />
             </dl>
 
+            {error && (
+              <div
+                role="alert"
+                className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700"
+              >
+                {error}
+              </div>
+            )}
+
             <div className="flex flex-col gap-2.5 sm:flex-row-reverse">
               <button
                 type="button"
                 data-autofocus
                 onClick={onConfirm}
-                className={cn(btnBase, btnMint, "flex-1 justify-center")}
+                disabled={submitting}
+                className={cn(
+                  btnBase,
+                  btnMint,
+                  "flex-1 justify-center",
+                  submitting && "opacity-70",
+                )}
               >
-                Підтвердити запис
+                {submitting ? "Бронюємо…" : "Підтвердити запис"}
               </button>
               <button
                 type="button"
                 onClick={onClose}
+                disabled={submitting}
                 className={cn(btnBase, btnGhost, "flex-1 justify-center")}
               >
                 Скасувати

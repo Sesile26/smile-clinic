@@ -4,6 +4,7 @@ import {
   type LocalDoctor,
   type LocalPatient,
   type LocalProfile,
+  type LocalSlot,
 } from "./db";
 
 export type MirrorReason = "offline" | "unauthorized" | "server";
@@ -18,6 +19,7 @@ interface MirrorPayload {
   appointments: LocalAppointment[];
   patients: LocalPatient[];
   doctors: LocalDoctor[];
+  slots: LocalSlot[];
 }
 
 /**
@@ -55,18 +57,20 @@ export async function pullMirror(): Promise<MirrorResult> {
 
   await db.transaction(
     "rw",
-    [db.appointments, db.patients, db.doctors, db.profile],
+    [db.appointments, db.patients, db.doctors, db.slots, db.profile],
     async () => {
       await Promise.all([
         db.appointments.clear(),
         db.patients.clear(),
         db.doctors.clear(),
+        db.slots.clear(),
         db.profile.clear(),
       ]);
       await Promise.all([
         db.appointments.bulkPut(payload.appointments),
         db.patients.bulkPut(payload.patients),
         db.doctors.bulkPut(payload.doctors),
+        db.slots.bulkPut(payload.slots),
         db.profile.put(payload.profile),
       ]);
     },
@@ -78,12 +82,13 @@ export async function pullMirror(): Promise<MirrorResult> {
 async function wipeAllTables(): Promise<void> {
   await db.transaction(
     "rw",
-    [db.appointments, db.patients, db.doctors, db.profile],
+    [db.appointments, db.patients, db.doctors, db.slots, db.profile],
     async () => {
       await Promise.all([
         db.appointments.clear(),
         db.patients.clear(),
         db.doctors.clear(),
+        db.slots.clear(),
         db.profile.clear(),
       ]);
     },

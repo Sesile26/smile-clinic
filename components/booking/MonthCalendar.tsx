@@ -2,31 +2,24 @@
 
 import { useCallback, useRef } from "react";
 import { cn } from "@/lib/cn";
-import {
-  WEEKDAYS_SHORT,
-  buildMonthGrid,
-  countFreeOnDay,
-  isSameDay,
-  type SlotDuration,
-} from "./data";
+import { WEEKDAYS_SHORT, buildMonthGrid, dayKey, isSameDay } from "./data";
 
 interface MonthCalendarProps {
   monthAnchor: Date;
-  doctorId: string;
-  duration: SlotDuration;
+  /** Free-slot count per local day key (dayKey) — from real data. */
+  freeCountByDay: Record<string, number>;
   today: Date | null;
   /** Picking a day jumps the parent into the week view around that date. */
   onPickDay: (date: Date) => void;
 }
 
 /**
- * Month overview. Each day shows how many free slots the selected doctor has
- * (mock count). Read-only summary — picking a day drills into the week grid.
+ * Month overview. Each day shows how many free slots the selected doctor has.
+ * Read-only summary — picking a day drills into the week grid.
  */
 export function MonthCalendar({
   monthAnchor,
-  doctorId,
-  duration,
+  freeCountByDay,
   today,
   onPickDay,
 }: MonthCalendarProps) {
@@ -75,9 +68,7 @@ export function MonthCalendar({
 
         {cells.map((cell, i) => {
           const isToday = today ? isSameDay(cell.date, today) : false;
-          const free = cell.inMonth
-            ? countFreeOnDay(doctorId, cell.date, duration)
-            : 0;
+          const free = cell.inMonth ? (freeCountByDay[dayKey(cell.date)] ?? 0) : 0;
           const hasFree = free > 0;
 
           return (

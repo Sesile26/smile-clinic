@@ -15,6 +15,10 @@ declare module "next-auth" {
       id: string;
       role: Role;
       patientId?: string;
+      // Set only for DOCTOR users that are linked to a Doctor row
+      // (Doctor.userId). The server still re-verifies ownership — never trust
+      // this client-visible claim for authorization.
+      doctorId?: string;
     } & DefaultSession["user"];
   }
 }
@@ -26,6 +30,7 @@ declare module "@auth/core/jwt" {
   interface JWT {
     role?: Role;
     patientId?: string;
+    doctorId?: string;
   }
 }
 
@@ -106,10 +111,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (user?.id) {
         const dbUser = await prisma.user.findUnique({
           where: { id: user.id },
-          select: { role: true, patientId: true },
+          select: {
+            role: true,
+            patientId: true,
+            // Linked Doctor row, if this account is a doctor.
+            doctor: { select: { id: true } },
+          },
         });
         token.role = dbUser?.role ?? Role.PATIENT;
         token.patientId = dbUser?.patientId ?? undefined;
+        token.doctorId = dbUser?.doctor?.id ?? undefined;
       }
       return token;
     },
@@ -122,6 +133,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.id = token.sub ?? session.user.id;
         session.user.role = token.role ?? Role.PATIENT;
         session.user.patientId = token.patientId;
+        session.user.doctorId = token.doctorId;
       }
       return session;
     },
@@ -139,6 +151,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       const email = user.email.toLowerCase();
       const adminEmails = parseEmailList(process.env.AUTH_ADMIN_EMAILS);
       const staffEmails = parseEmailList(process.env.AUTH_STAFF_EMAILS);
+      // DOCTOR is assigned in a CONTROLLED way only — via this allowlist (or
+      // by an admin manually). Never automatically from a self-service signup.
+      // NOTE: this only sets the role; linking the User to a Doctor row
+      // (Doctor.userId) is a separate, deliberate step (seed / admin action),
+      // so the session's doctorId stays empty until that link exists.
+      const doctorEmails = parseEmailList(process.env.AUTH_DOCTOR_EMAILS);
 
       let role: Role = Role.PATIENT;
       let patientId: string | undefined;
@@ -147,6 +165,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         role = Role.ADMIN;
       } else if (staffEmails.includes(email)) {
         role = Role.STAFF;
+      } else if (doctorEmails.includes(email)) {
+        role = Role.DOCTOR;
       } else {
         // Link to an existing Patient record if email matches (no duplicate).
         const patient = await prisma.patient.findUnique({

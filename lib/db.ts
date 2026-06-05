@@ -47,11 +47,34 @@ export interface LocalDoctor {
   lastMirroredAt: number;
 }
 
+/**
+ * Read-only mirror of an availability slot, for OFFLINE VIEWING only.
+ * Booking and slot editing are online-only, so this is never written back.
+ *   • DOCTOR  → own slots, working window (today..+N days).
+ *   • STAFF/ADMIN → all slots, today..+7 days.
+ *   • PATIENT → none (patients view their own appointments offline, not slots).
+ */
+export interface LocalSlot {
+  id: string;
+  doctorId: string;
+  doctorName: string;
+  doctorSpecialty: string;
+  /** UTC ISO. */
+  startsAt: string;
+  /** UTC ISO. */
+  endsAt: string;
+  status: "free" | "booked";
+  lastMirroredAt: number;
+}
+
 export interface LocalProfile {
   /** Always the literal "me" — singleton row for the current session. */
   userId: string;
-  role: "PATIENT" | "STAFF" | "ADMIN";
+  role: "PATIENT" | "DOCTOR" | "STAFF" | "ADMIN";
   patientId: string | null;
+  /** The Doctor row this user owns, if any — lets the offline manage view
+   *  know whose slots to read from the mirror without hitting the network. */
+  doctorId: string | null;
   name: string | null;
   email: string | null;
   image: string | null;
@@ -62,6 +85,7 @@ export class ClinicDatabase extends Dexie {
   appointments!: Table<LocalAppointment, string>;
   patients!: Table<LocalPatient, string>;
   doctors!: Table<LocalDoctor, string>;
+  slots!: Table<LocalSlot, string>;
   profile!: Table<LocalProfile, string>;
 
   constructor() {
@@ -89,6 +113,17 @@ export class ClinicDatabase extends Dexie {
           tx.table("patients").clear(),
         ]).then(() => undefined),
       );
+
+    // v3: adds the `slots` table for offline schedule viewing. Additive — the
+    // existing tables keep their data; the new table starts empty and fills on
+    // the next mirror pull. Indexed by doctorId + startsAt for the week query.
+    this.version(3).stores({
+      appointments: "id, date, status, doctorId, patientId",
+      patients: "id, name",
+      doctors: "id",
+      slots: "id, doctorId, status, startsAt",
+      profile: "userId",
+    });
   }
 }
 

@@ -3,17 +3,28 @@
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/cn";
 import {
-  DOCTORS,
+  useDoctors,
+  useSlots,
+  type BookingIdentity,
+} from "@/hooks/useBooking";
+import {
+  createSlot,
+  deleteSlot,
+  BookingApiError,
+} from "@/lib/booking-client";
+import { cellEndUtcISO, cellToUtcISO } from "@/lib/booking-time";
+import {
   addDays,
   addMonths,
-  buildWeek,
-  dayKey,
+  assembleWeek,
+  cellKeyOf,
   formatMonth,
   formatWeekRange,
+  freeCountByDay,
+  indexSlots,
+  manageTimes,
   startOfMonth,
   startOfWeek,
-  type DaySlots,
-  type DemoState,
   type SlotDuration,
   type SlotStatus,
   type ViewMode,
@@ -22,89 +33,198 @@ import { CalendarToolbar } from "./CalendarToolbar";
 import { WeekCalendar } from "./WeekCalendar";
 import { MonthCalendar } from "./MonthCalendar";
 import { Select } from "./Select";
-import { EmptyState, ErrorBanner, SkeletonCalendar } from "./StatePanels";
+import {
+  EmptyState,
+  ErrorBanner,
+  OfflineNotice,
+  SkeletonCalendar,
+} from "./StatePanels";
 
 interface ManageViewProps {
   today: Date;
-  demoState: DemoState;
-  onRetry: () => void;
+  identity: BookingIdentity;
+  online: boolean;
 }
 
 /**
- * Mode A — doctor/admin slot management.
- * Toggling a free slot marks "я працюю" (mint); booked slots are locked.
- * Slot edits live in `overrides`, keyed by doctor+date+time so they survive
- * week/month navigation without a backend.
+ * Slot management for DOCTOR / STAFF / ADMIN.
+ *  • DOCTOR is locked to their own Doctor row (no picker).
+ *  • STAFF/ADMIN pick whose calendar to edit.
+ * Toggling an empty cell POSTs a free slot; toggling a free cell DELETEs it;
+ * booked cells are locked. Offline → read-only mirror, edits disabled.
  */
-export function ManageView({ today, demoState, onRetry }: ManageViewProps) {
+export function ManageView({ today, identity, online }: ManageViewProps) {
+  const isStaffAdmin = identity.role === "STAFF" || identity.role === "ADMIN";
+
   const [view, setView] = useState<ViewMode>("week");
   const [duration, setDuration] = useState<SlotDuration>(30);
-  const [doctorId, setDoctorId] = useState(DOCTORS[0].id);
+  const [selectedDoctorId, setSelectedDoctorId] = useState<string>("");
   const [weekAnchor, setWeekAnchor] = useState(() => startOfWeek(today));
   const [monthAnchor, setMonthAnchor] = useState(() => startOfMonth(today));
   const [selectedDay, setSelectedDay] = useState(0);
-  // override key → "off" | "working"
-  const [overrides, setOverrides] = useState<Record<string, SlotStatus>>({});
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const doctor = DOCTORS.find((d) => d.id === doctorId) ?? DOCTORS[0];
+  const { doctors, state: doctorsState } = useDoctors(online);
 
-  // Week with edits applied. Booked is immutable; otherwise an override wins.
-  const week: DaySlots[] = useMemo(() => {
-    const base = buildWeek(doctorId, weekAnchor, duration);
-    return base.map((day) => ({
-      date: day.date,
-      slots: day.slots.map((s) => {
-        if (s.status === "booked") return s;
-        const k = `${doctorId}|${dayKey(day.date)}|${s.time}`;
-        return { time: s.time, status: overrides[k] ?? s.status };
-      }),
-    }));
-  }, [doctorId, weekAnchor, duration, overrides]);
+  // DOCTOR → own doctor row; STAFF/ADMIN → the picked one, derived (with a
+  // first-doctor fallback) so we never sync state inside an effect.
+  const activeDoctorId = useMemo(() => {
+    if (!isStaffAdmin) return identity.doctorId;
+    if (selectedDoctorId && doctors.some((d) => d.id === selectedDoctorId)) {
+      return selectedDoctorId;
+    }
+    return doctors[0]?.id ?? null;
+  }, [isStaffAdmin, identity.doctorId, selectedDoctorId, doctors]);
+  const activeDoctor = doctors.find((d) => d.id === activeDoctorId);
 
-  const toggleSlot = (dayIndex: number, time: string, status: SlotStatus) => {
-    if (status === "booked") return;
+  const { fromISO, toISO } = useMemo(() => {
+    if (view === "week") {
+      return {
+        fromISO: weekAnchor.toISOString(),
+        toISO: addDays(weekAnchor, 7).toISOString(),
+      };
+    }
+    const gridStart = startOfWeek(startOfMonth(monthAnchor));
+    return {
+      fromISO: gridStart.toISOString(),
+      toISO: addDays(gridStart, 42).toISOString(),
+    };
+  }, [view, weekAnchor, monthAnchor]);
+
+  const {
+    slots,
+    state: slotsState,
+    reload,
+  } = useSlots({
+    doctorId: activeDoctorId ?? null,
+    fromISO,
+    toISO,
+    online,
+    enabled: !!activeDoctorId,
+  });
+
+  const maps = useMemo(() => indexSlots(slots), [slots]);
+  const times = useMemo(() => manageTimes(duration), [duration]);
+  const week = useMemo(
+    () => assembleWeek(weekAnchor, times, maps.statusByCell),
+    [weekAnchor, times, maps],
+  );
+  const monthCounts = useMemo(() => freeCountByDay(slots), [slots]);
+
+  // DOCTOR role with no linked Doctor row yet.
+  if (identity.role === "DOCTOR" && !identity.doctorId) {
+    return (
+      <EmptyState
+        title="Акаунт лікаря не привʼязаний"
+        hint="Ваш акаунт має роль «лікар», але ще не зв’язаний із карткою лікаря. Зверніться до адміністратора, щоб отримати доступ до керування розкладом."
+      />
+    );
+  }
+
+  const toggleSlot = async (
+    dayIndex: number,
+    time: string,
+    status: SlotStatus,
+  ) => {
+    if (!online || busy || !activeDoctorId || status === "booked") return;
     const date = addDays(weekAnchor, dayIndex);
-    const k = `${doctorId}|${dayKey(date)}|${time}`;
-    setOverrides((prev) => ({
-      ...prev,
-      [k]: status === "working" ? "off" : "working",
-    }));
+    setActionError(null);
+    setBusy(true);
+    try {
+      if (status === "working") {
+        const slot = maps.slotByCell.get(cellKeyOf(date, time));
+        if (slot) await deleteSlot(slot.id);
+      } else {
+        await createSlot(
+          activeDoctorId,
+          cellToUtcISO(date, time),
+          cellEndUtcISO(date, time, duration),
+        );
+      }
+      reload();
+    } catch (err) {
+      setActionError(
+        err instanceof BookingApiError
+          ? err.message
+          : "Не вдалося оновити розклад. Спробуйте ще раз.",
+      );
+      reload();
+    } finally {
+      setBusy(false);
+    }
   };
 
   const shift = (dir: 1 | -1) => {
     if (view === "week") setWeekAnchor((d) => addDays(d, dir * 7));
     else setMonthAnchor((d) => addMonths(d, dir));
   };
-
   const goToday = () => {
     setWeekAnchor(startOfWeek(today));
     setMonthAnchor(startOfMonth(today));
   };
-
   const pickDay = (date: Date) => {
     setWeekAnchor(startOfWeek(date));
     setSelectedDay((date.getDay() + 6) % 7);
     setView("week");
   };
 
-  const title = view === "week" ? formatWeekRange(weekAnchor) : formatMonth(monthAnchor);
+  const title =
+    view === "week" ? formatWeekRange(weekAnchor) : formatMonth(monthAnchor);
+
+  const showSkeleton =
+    (isStaffAdmin && doctorsState === "loading" && doctors.length === 0) ||
+    slotsState === "loading";
 
   return (
     <div>
-      {/* Doctor picker (admin) */}
+      {/* Doctor scope + legend */}
       <div className="mb-5 flex flex-col gap-4 rounded-xl border border-[color:var(--line)] bg-white p-4 sm:flex-row sm:items-end sm:justify-between">
-        <Select
-          label="Оберіть лікаря"
-          value={doctorId}
-          onChange={setDoctorId}
-          options={DOCTORS.map((d) => ({
-            value: d.id,
-            label: `${d.name} · ${d.specialty}`,
-          }))}
-          className="sm:max-w-[360px] sm:flex-1"
-        />
+        {isStaffAdmin ? (
+          <Select
+            label="Оберіть лікаря"
+            value={activeDoctorId ?? ""}
+            onChange={setSelectedDoctorId}
+            options={
+              doctors.length
+                ? doctors.map((d) => ({
+                    value: d.id,
+                    label: `${d.name} · ${d.specialty}`,
+                  }))
+                : [{ value: "", label: "Немає лікарів" }]
+            }
+            className="sm:max-w-[360px] sm:flex-1"
+          />
+        ) : (
+          <div className="sm:flex-1">
+            <div className="text-xs font-medium tracking-[0.04em] text-navy-700">
+              Ваш розклад
+            </div>
+            <div className="mt-1 text-sm font-medium text-navy-900">
+              {activeDoctor?.name ?? "—"}
+              {activeDoctor?.specialty && (
+                <span className="text-navy-400"> · {activeDoctor.specialty}</span>
+              )}
+            </div>
+          </div>
+        )}
         <Legend />
       </div>
+
+      {!online && (
+        <OfflineNotice
+          className="mb-4"
+          message={
+            <>
+              Ви офлайн. Розклад показано лише для перегляду —{" "}
+              <strong className="font-medium">
+                зміни доступні лише онлайн
+              </strong>
+              .
+            </>
+          }
+        />
+      )}
 
       <CalendarToolbar
         view={view}
@@ -117,32 +237,47 @@ export function ManageView({ today, demoState, onRetry }: ManageViewProps) {
         onDurationChange={setDuration}
       />
 
-      {demoState === "loading" ? (
+      {actionError && (
+        <div
+          role="alert"
+          className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700"
+        >
+          {actionError}
+        </div>
+      )}
+
+      {isStaffAdmin && doctorsState === "error" ? (
+        <ErrorBanner onRetry={() => window.location.reload()} />
+      ) : showSkeleton ? (
         <SkeletonCalendar />
-      ) : demoState === "error" ? (
-        <ErrorBanner onRetry={onRetry} />
-      ) : demoState === "empty" ? (
-        <EmptyState
-          title="Розклад порожній"
-          hint={`У ${doctor.name} ще немає налаштованих слотів на цей період.`}
+      ) : slotsState === "error" ? (
+        <ErrorBanner onRetry={reload} />
+      ) : !activeDoctorId ? (
+        <EmptyState title="Оберіть лікаря" hint="Виберіть лікаря, щоб побачити та редагувати його розклад." />
+      ) : view === "month" ? (
+        <MonthCalendar
+          monthAnchor={monthAnchor}
+          freeCountByDay={monthCounts}
+          today={today}
+          onPickDay={pickDay}
         />
-      ) : view === "week" ? (
+      ) : (
         <WeekCalendar
           week={week}
           mode="manage"
+          disabled={!online}
           today={today}
           selectedDay={selectedDay}
           onSelectDay={setSelectedDay}
           onActivate={toggleSlot}
         />
-      ) : (
-        <MonthCalendar
-          monthAnchor={monthAnchor}
-          doctorId={doctorId}
-          duration={duration}
-          today={today}
-          onPickDay={pickDay}
-        />
+      )}
+
+      {online && view === "week" && activeDoctorId && slotsState === "ready" && (
+        <p className="mt-3 text-xs text-navy-400">
+          Натисніть на вільну клітинку, щоб позначити «працюю», або на мітку
+          «працюю», щоб прибрати. Заброньовані слоти заблоковані.
+        </p>
       )}
     </div>
   );

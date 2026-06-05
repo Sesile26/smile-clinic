@@ -1,60 +1,48 @@
 /**
- * Mock data + pure helpers for the /booking UI.
+ * UI helpers for the /booking calendar.
  *
- * THIS IS A FRONTEND-ONLY STEP. There is no fetch, no API, no DB here — every
- * "slot" is derived deterministically from a tiny hash so the same doctor +
- * day + time always renders the same state across reloads (stable demo, no
- * hydration flicker). Real scheduling will replace these helpers later.
+ * The mock data generator is GONE — slots now come from the API / Dexie mirror
+ * (see hooks/useBooking.ts). This module keeps the pure, presentational bits:
+ * date math, uk-locale formatting, and helpers that fold a list of real
+ * {@link ApiSlot}s into the grid shape the calendar components render.
+ *
+ * TZ: slots arrive as UTC ISO; everything here works in LOCAL time via the
+ * conversion helpers in lib/booking-time.ts. Single source of truth = UTC.
  */
+
+import {
+  buildTimes,
+  cellKey,
+  utcToLocalCell,
+  type SlotDuration,
+} from "@/lib/booking-time";
+import type { ApiSlot } from "@/lib/booking-types";
+
+export type { SlotDuration } from "@/lib/booking-time";
+export { buildTimes } from "@/lib/booking-time";
 
 export type ViewMode = "week" | "month";
 
 /**
- * Demo-only switch so reviewers can preview every async UI state without a
- * server. "ready" is the normal happy path.
- */
-export type DemoState = "ready" | "loading" | "empty" | "error";
-
-/** Slot length the doctor works in. Affects how dense the grid is. */
-export type SlotDuration = 15 | 30 | 60;
-
-/**
- * Slot state from the *doctor's* point of view:
- *  - "off"     — doctor is not working this slot (toggleable on)
- *  - "working" — doctor marked themselves available (toggleable off) and it is
- *                what a patient sees as a free, bookable slot
- *  - "booked"  — an appointment already exists; locked, never toggleable
+ * Grid vocabulary (decoupled from the API's free/booked):
+ *  - "off"     — no slot exists for this cell (manage: toggle on to create)
+ *  - "working" — a free slot exists (manage: toggle off to delete · patient:
+ *                bookable)
+ *  - "booked"  — slot has an appointment; locked
  */
 export type SlotStatus = "off" | "working" | "booked";
 
+/** Minimal doctor shape used across the booking UI (matches ApiDoctor). */
 export interface Doctor {
   id: string;
   name: string;
   specialty: string;
-  /** Two-letter monogram for the avatar chip. */
-  initials: string;
 }
 
 export interface DaySlots {
-  /** Date for this column. */
   date: Date;
   slots: { time: string; status: SlotStatus }[];
 }
-
-// ─── Mock doctors ────────────────────────────────────────────────────────────
-
-export const DOCTORS: Doctor[] = [
-  { id: "d1", name: "Олена Коваль", specialty: "Естетична стоматологія", initials: "ОК" },
-  { id: "d2", name: "Андрій Левченко", specialty: "Імплантація", initials: "АЛ" },
-  { id: "d3", name: "Марія Гончар", specialty: "Ортодонтія", initials: "МГ" },
-  { id: "d4", name: "Ігор Дідух", specialty: "Дитяча стоматологія", initials: "ІД" },
-  { id: "d5", name: "Софія Тарасенко", specialty: "Невідкладна допомога", initials: "СТ" },
-];
-
-/** Unique specialties, in declaration order — for the patient-side filter. */
-export const SPECIALTIES: string[] = Array.from(
-  new Set(DOCTORS.map((d) => d.specialty)),
-);
 
 // ─── Date helpers (uk locale, hardcoded to avoid Intl drift) ─────────────────
 
@@ -70,7 +58,7 @@ const MONTHS_GEN = [
   "липня", "серпня", "вересня", "жовтня", "листопада", "грудня",
 ];
 
-/** Monday-based start of the week containing `d`, normalised to local midnight. */
+/** Monday-based start of the week containing `d`, at local midnight. */
 export function startOfWeek(d: Date): Date {
   const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const dow = (x.getDay() + 6) % 7; // 0 = Monday
@@ -100,7 +88,7 @@ export function isSameDay(a: Date, b: Date): boolean {
   );
 }
 
-/** Stable "YYYY-MM-DD" key (local), used both for React keys and the hash. */
+/** Local "YYYY-MM-DD" key. Same format as lib/booking-time.localDateKey. */
 export function dayKey(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
@@ -123,86 +111,79 @@ export function formatDayLong(d: Date): string {
   return `${dow}, ${d.getDate()} ${MONTHS_GEN[d.getMonth()]}`;
 }
 
-// ─── Deterministic mock slot generation ──────────────────────────────────────
+// ─── Folding real slots into the grid ────────────────────────────────────────
 
-/** FNV-1a-ish hash → unsigned 32-bit, stable across reloads/SSR. */
-function hash(...parts: (string | number)[]): number {
-  let h = 2166136261;
-  const s = parts.join("|");
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
+export interface SlotMaps {
+  /** cellKey(dayKey,time) → grid status. */
+  statusByCell: Map<string, SlotStatus>;
+  /** cellKey(dayKey,time) → the underlying API slot (for actions). */
+  slotByCell: Map<string, ApiSlot>;
+}
+
+/** Lookup key for a given calendar cell (local Date + "HH:MM"). */
+export function cellKeyOf(date: Date, time: string): string {
+  return cellKey(dayKey(date), time);
+}
+
+/** Index a flat slot list by local (day, time) for O(1) grid lookups. */
+export function indexSlots(slots: ApiSlot[]): SlotMaps {
+  const statusByCell = new Map<string, SlotStatus>();
+  const slotByCell = new Map<string, ApiSlot>();
+  for (const s of slots) {
+    const { dateKey, time } = utcToLocalCell(s.startsAt);
+    const key = cellKey(dateKey, time);
+    statusByCell.set(key, s.status === "booked" ? "booked" : "working");
+    slotByCell.set(key, s);
   }
-  return h >>> 0;
+  return { statusByCell, slotByCell };
 }
 
-const WORK_START_MIN = 9 * 60; // 09:00
-const WORK_END_MIN = 18 * 60; // 18:00
-
-function fmtTime(min: number): string {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-}
-
-/** Time labels for a given slot duration, 09:00 → 18:00. */
-export function buildTimes(duration: SlotDuration): string[] {
-  const out: string[] = [];
-  for (let m = WORK_START_MIN; m < WORK_END_MIN; m += duration) {
-    out.push(fmtTime(m));
-  }
-  return out;
-}
-
-/**
- * Base (un-edited) status for one slot. Deterministic per doctor/day/time so
- * the demo is stable. Sunday is closed; 13:00 is lunch; Saturdays are light.
- */
-function baseStatus(
-  doctorId: string,
-  date: Date,
-  time: string,
-): SlotStatus {
-  const dow = (date.getDay() + 6) % 7; // 0 = Mon … 6 = Sun
-  if (dow === 6) return "off"; // Sunday closed
-  if (time.startsWith("13")) return "off"; // lunch
-
-  const r = hash(doctorId, dayKey(date), time) % 100;
-  if (dow === 5) return r < 28 ? "working" : "off"; // Saturday: lighter
-  if (r < 16) return "booked";
-  if (r < 62) return "working";
-  return "off";
-}
-
-/** Full week of base slots for a doctor at a given duration. */
-export function buildWeek(
-  doctorId: string,
+/** Build a 7-day grid for `times`, reading statuses from the slot map. */
+export function assembleWeek(
   weekStart: Date,
-  duration: SlotDuration,
+  times: string[],
+  statusByCell: Map<string, SlotStatus>,
 ): DaySlots[] {
-  const times = buildTimes(duration);
   return Array.from({ length: 7 }, (_, i) => {
     const date = addDays(weekStart, i);
+    const dk = dayKey(date);
     return {
       date,
       slots: times.map((time) => ({
         time,
-        status: baseStatus(doctorId, date, time),
+        status: statusByCell.get(cellKey(dk, time)) ?? "off",
       })),
     };
   });
 }
 
-/** Count of free (working, bookable) slots on a given day — for month badges. */
-export function countFreeOnDay(
-  doctorId: string,
-  date: Date,
-  duration: SlotDuration,
-): number {
-  return buildTimes(duration).reduce(
-    (n, time) => (baseStatus(doctorId, date, time) === "working" ? n + 1 : n),
-    0,
-  );
+/** Fixed working-window grid times for the doctor's chosen slot length. */
+export function manageTimes(duration: SlotDuration): string[] {
+  return buildTimes(duration);
+}
+
+/**
+ * Patient grid times = the sorted set of local start-times that actually have a
+ * FREE slot somewhere in the visible week. Adapts to whatever durations the
+ * doctor created, instead of forcing a fixed grid.
+ */
+export function patientTimes(slots: ApiSlot[]): string[] {
+  const set = new Set<string>();
+  for (const s of slots) {
+    if (s.status === "free") set.add(utcToLocalCell(s.startsAt).time);
+  }
+  return [...set].sort();
+}
+
+/** Per-local-day count of free slots — drives the month-view badges. */
+export function freeCountByDay(slots: ApiSlot[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const s of slots) {
+    if (s.status !== "free") continue;
+    const { dateKey } = utcToLocalCell(s.startsAt);
+    out[dateKey] = (out[dateKey] ?? 0) + 1;
+  }
+  return out;
 }
 
 // ─── Month grid ──────────────────────────────────────────────────────────────
