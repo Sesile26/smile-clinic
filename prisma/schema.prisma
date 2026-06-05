@@ -16,6 +16,7 @@ enum Role {
   ADMIN
   STAFF
   PATIENT
+  DOCTOR
 }
 
 enum AppointmentStatus {
@@ -23,6 +24,11 @@ enum AppointmentStatus {
   confirmed
   done
   cancelled
+}
+
+enum SlotStatus {
+  free
+  booked
 }
 
 // ─── Auth.js models ──────────────────────────────────────────────────────────
@@ -39,6 +45,8 @@ model User {
   role          Role      @default(PATIENT)
   patientId     String?   @unique
   patient       Patient?  @relation(fields: [patientId], references: [id])
+  // Зворотний звʼязок: акаунт лікаря (FK живе на Doctor.userId).
+  doctor        Doctor?
   accounts      Account[]
   sessions      Session[]
   createdAt     DateTime  @default(now())
@@ -96,11 +104,15 @@ model Patient {
 }
 
 model Doctor {
-  id           String        @id @default(cuid())
+  id           String             @id @default(cuid())
   name         String
   specialty    String
-  createdAt    DateTime      @default(now())
+  // Опційний звʼязок з акаунтом: лікар може мати User для входу в кабінет.
+  userId       String?            @unique
+  user         User?              @relation(fields: [userId], references: [id])
+  createdAt    DateTime           @default(now())
   appointments Appointment[]
+  slots        AvailabilitySlot[]
 }
 
 model Appointment {
@@ -112,9 +124,31 @@ model Appointment {
   patient   Patient           @relation(fields: [patientId], references: [id])
   doctorId  String
   doctor    Doctor            @relation(fields: [doctorId], references: [id])
+  // Зворотний звʼязок: слот доступності, який закрив цей запис (FK на
+  // AvailabilitySlot.appointmentId). Без нових колонок у Appointment.
+  slot      AvailabilitySlot?
   createdAt DateTime          @default(now())
 
   @@index([patientId])
   @@index([doctorId])
   @@index([date])
+}
+
+// ─── Booking / availability ──────────────────────────────────────────────────
+
+model AvailabilitySlot {
+  id            String       @id @default(cuid())
+  doctorId      String
+  doctor        Doctor       @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  // UTC. startsAt/endsAt завжди зберігаємо та читаємо як UTC — без TZ-зсувів.
+  startsAt      DateTime
+  endsAt        DateTime
+  status        SlotStatus   @default(free)
+  appointmentId String?      @unique
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id])
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@unique([doctorId, startsAt])
+  @@index([doctorId, status, startsAt])
 }
