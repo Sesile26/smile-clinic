@@ -7,6 +7,13 @@ export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
+    // `npx prisma db seed` runs this. Prisma 7 reads the seed command from the
+    // config file (not package.json#prisma) when a prisma.config.ts exists.
+    // Run via Node's loader hook (`--import tsx`) rather than the `tsx` bin so
+    // it resolves the package from node_modules without depending on PATH /
+    // .bin shims. tsx handles ESM + extensionless imports from the generated
+    // client.
+    seed: "node --import tsx prisma/seed.ts",
   },
   datasource: {
     url: process.env["DATABASE_URL"],
