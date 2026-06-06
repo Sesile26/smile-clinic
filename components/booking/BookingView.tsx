@@ -15,6 +15,7 @@ import {
   formatWeekRange,
   freeCountByDay,
   indexSlots,
+  isCellPast,
   patientTimes,
   startOfMonth,
   startOfWeek,
@@ -120,8 +121,8 @@ export function BookingView({ today, online }: BookingViewProps) {
   const maps = useMemo(() => indexSlots(slots), [slots]);
   const times = useMemo(() => patientTimes(slots), [slots]);
   const week = useMemo(
-    () => assembleWeek(weekAnchor, times, maps.statusByCell),
-    [weekAnchor, times, maps],
+    () => assembleWeek(weekAnchor, times, maps.statusByCell, today),
+    [weekAnchor, times, maps, today],
   );
   const monthCounts = useMemo(() => freeCountByDay(slots), [slots]);
   const hasFreeThisWeek = week.some((d) =>
@@ -139,6 +140,7 @@ export function BookingView({ today, online }: BookingViewProps) {
 
   const openConfirm = (dayIndex: number, time: string) => {
     const date = addDays(weekAnchor, dayIndex);
+    if (isCellPast(date, time, today)) return; // past slots aren't bookable
     const slot = maps.slotByCell.get(cellKeyOf(date, time));
     if (!slot) return;
     setSelection({ slot, date, time });
@@ -158,6 +160,9 @@ export function BookingView({ today, online }: BookingViewProps) {
     } catch (err) {
       if (err instanceof BookingApiError && err.code === "slot_taken") {
         setBookingError("Цей слот щойно зайняли. Оберіть, будь ласка, інший.");
+        reload();
+      } else if (err instanceof BookingApiError && err.code === "past") {
+        setBookingError("Цей час уже минув. Оберіть, будь ласка, інший слот.");
         reload();
       } else if (err instanceof BookingApiError) {
         setBookingError(err.message);

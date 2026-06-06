@@ -65,11 +65,16 @@ export async function GET(request: Request) {
   // (and doctors peeking at another doctor) see only free slots.
   const canSeeAll = canManageDoctor(actor, doctorId);
 
+  // Patients never see past slots: clamp the lower bound to now. Managers keep
+  // the full range (their grid greys past cells but still shows history).
+  const now = new Date();
+  const lowerBound = canSeeAll || now < from ? from : now;
+
   try {
     const rows = await prisma.availabilitySlot.findMany({
       where: {
         doctorId,
-        startsAt: { gte: from, lt: to },
+        startsAt: { gte: lowerBound, lt: to },
         ...(canSeeAll ? {} : { status: SlotStatus.free }),
       },
       orderBy: { startsAt: "asc" },
@@ -123,6 +128,11 @@ export async function POST(request: Request) {
   const end = new Date(endsAt);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start >= end) {
     return apiError(400, "validation", "Невалідний час слота");
+  }
+
+  // No slots in the past — compared by the current moment (UTC), not by day.
+  if (start < new Date()) {
+    return apiError(400, "past", "Не можна створити слот у минулому");
   }
 
   // Booking is hour-only: the server rejects any slot that isn't exactly

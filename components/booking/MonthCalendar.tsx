@@ -26,6 +26,11 @@ export function MonthCalendar({
   const cells = buildMonthGrid(monthAnchor);
   const cellRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
+  // Local midnight of "today" — a day is past if it ends before this.
+  const todayMidnight = today
+    ? new Date(today.getFullYear(), today.getMonth(), today.getDate())
+    : null;
+
   const onKeyDown = useCallback(
     (index: number) => (e: React.KeyboardEvent<HTMLButtonElement>) => {
       const delta =
@@ -68,8 +73,9 @@ export function MonthCalendar({
 
         {cells.map((cell, i) => {
           const isToday = today ? isSameDay(cell.date, today) : false;
+          const isPast = todayMidnight ? cell.date < todayMidnight : false;
           const free = cell.inMonth ? (freeCountByDay[dayKey(cell.date)] ?? 0) : 0;
-          const hasFree = free > 0;
+          const hasFree = free > 0 && !isPast;
 
           return (
             <button
@@ -80,15 +86,23 @@ export function MonthCalendar({
               type="button"
               role="gridcell"
               tabIndex={i === 0 ? 0 : -1}
+              disabled={isPast}
               onKeyDown={onKeyDown(i)}
               onClick={() => onPickDay(cell.date)}
-              aria-label={`${cell.date.getDate()} число, вільних слотів: ${free}`}
+              aria-label={
+                isPast
+                  ? `${cell.date.getDate()} число — день уже минув`
+                  : `${cell.date.getDate()} число, вільних слотів: ${free}`
+              }
               className={cn(
                 "flex aspect-square flex-col items-center justify-center gap-1 rounded-lg border text-sm transition-colors",
                 "focus:outline-none focus-visible:ring-2 focus-visible:ring-mint focus-visible:ring-offset-1",
-                cell.inMonth
-                  ? "border-[color:var(--line)] hover:border-navy-900"
-                  : "border-transparent text-navy-400/40",
+                "disabled:cursor-not-allowed",
+                isPast
+                  ? "border-transparent bg-cream/40 text-navy-400/40"
+                  : cell.inMonth
+                    ? "border-[color:var(--line)] hover:border-navy-900"
+                    : "border-transparent text-navy-400/40",
                 isToday && "border-navy-900",
               )}
             >
@@ -100,7 +114,7 @@ export function MonthCalendar({
               >
                 {cell.date.getDate()}
               </span>
-              {cell.inMonth && (
+              {cell.inMonth && !isPast && (
                 <span
                   className={cn(
                     "inline-flex min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-medium tabular-nums",

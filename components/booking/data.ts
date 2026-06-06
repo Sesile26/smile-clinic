@@ -41,7 +41,24 @@ export interface Doctor {
 
 export interface DaySlots {
   date: Date;
-  slots: { time: string; status: SlotStatus }[];
+  slots: { time: string; status: SlotStatus; past: boolean }[];
+}
+
+/**
+ * Is the local cell (date + "HH:MM") strictly before `now`? Comparison is by
+ * MOMENT (epoch ms), so a slot earlier today counts as past in the evening.
+ * TZ-safe: a local Date and `now` are both absolute instants.
+ */
+export function isCellPast(date: Date, time: string, now: Date): boolean {
+  const [h, m] = time.split(":").map(Number);
+  const cellMs = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    h,
+    m,
+  ).getTime();
+  return cellMs < now.getTime();
 }
 
 // ─── Date helpers (uk locale, hardcoded to avoid Intl drift) ─────────────────
@@ -143,6 +160,7 @@ export function assembleWeek(
   weekStart: Date,
   times: string[],
   statusByCell: Map<string, SlotStatus>,
+  now: Date,
 ): DaySlots[] {
   return Array.from({ length: 7 }, (_, i) => {
     const date = addDays(weekStart, i);
@@ -152,6 +170,7 @@ export function assembleWeek(
       slots: times.map((time) => ({
         time,
         status: statusByCell.get(cellKey(dk, time)) ?? "off",
+        past: isCellPast(date, time, now),
       })),
     };
   });

@@ -31,6 +31,7 @@ export type ApiErrorCode =
   | "slot_busy" // tried to delete a booked slot
   | "overlap" // new slot overlaps an existing one
   | "duplicate" // a slot already exists at that exact start
+  | "past" // slot start is in the past
   | "server";
 
 export interface ApiError {

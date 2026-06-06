@@ -24,9 +24,14 @@ interface WeekCalendarProps {
   onActivate: (dayIndex: number, time: string, status: SlotStatus) => void;
 }
 
-/** Which statuses render an interactive button in each mode. */
-function isFocusable(status: SlotStatus, mode: Mode, disabled?: boolean): boolean {
-  if (disabled) return false;
+/** Which cells render an interactive button in each mode. */
+function isFocusable(
+  status: SlotStatus,
+  mode: Mode,
+  disabled?: boolean,
+  past?: boolean,
+): boolean {
+  if (disabled || past) return false; // past cells are never actionable
   if (mode === "manage") return status !== "booked";
   return status === "working"; // book mode → only free slots
 }
@@ -67,8 +72,10 @@ export function WeekCalendar({
   const firstFocusableKey = useMemo(() => {
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const status = week[c]?.slots[r]?.status;
-        if (status && isFocusable(status, mode, disabled)) return `${r}-${c}`;
+        const cell = week[c]?.slots[r];
+        if (cell && isFocusable(cell.status, mode, disabled, cell.past)) {
+          return `${r}-${c}`;
+        }
       }
     }
     return null;
@@ -187,9 +194,17 @@ export function WeekCalendar({
                 {week.map((day, c) => {
                   const slot = day.slots[r];
                   const key = `${r}-${c}`;
-                  const focusable = isFocusable(slot.status, mode, disabled);
+                  const focusable = isFocusable(
+                    slot.status,
+                    mode,
+                    disabled,
+                    slot.past,
+                  );
+                  // Manage: show every cell (past ones greyed). Book: only a
+                  // FREE, non-past slot is shown — past free slots are hidden.
                   const show =
-                    mode === "manage" || slot.status === "working";
+                    mode === "manage" ||
+                    (slot.status === "working" && !slot.past);
 
                   return (
                     <div
@@ -202,6 +217,7 @@ export function WeekCalendar({
                           ref={register(key)}
                           time={time}
                           variant={variantFor(slot.status, mode)}
+                          past={slot.past}
                           disabled={disabled || slot.status === "booked"}
                           tabIndex={
                             focusable && key === activeOrFirst ? 0 : -1
@@ -294,8 +310,8 @@ function MobileDayList({
 
   const visible =
     mode === "manage"
-      ? day.slots
-      : day.slots.filter((s) => s.status === "working");
+      ? day.slots // past cells shown greyed/disabled
+      : day.slots.filter((s) => s.status === "working" && !s.past); // hide past
 
   if (visible.length === 0) {
     return (
@@ -312,6 +328,7 @@ function MobileDayList({
           key={slot.time}
           time={slot.time}
           variant={variantFor(slot.status, mode)}
+          past={slot.past}
           disabled={disabled || slot.status === "booked"}
           onClick={() => onActivate(slot.time, slot.status)}
         />

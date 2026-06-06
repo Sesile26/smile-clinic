@@ -26,6 +26,7 @@ import {
   formatWeekRange,
   freeCountByDay,
   indexSlots,
+  isCellPast,
   manageTimes,
   startOfMonth,
   startOfWeek,
@@ -109,8 +110,8 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
   const maps = useMemo(() => indexSlots(slots), [slots]);
   const times = useMemo(() => manageTimes(SLOT_DURATION_MIN), []);
   const week = useMemo(
-    () => assembleWeek(weekAnchor, times, maps.statusByCell),
-    [weekAnchor, times, maps],
+    () => assembleWeek(weekAnchor, times, maps.statusByCell, today),
+    [weekAnchor, times, maps, today],
   );
   const monthCounts = useMemo(() => freeCountByDay(slots), [slots]);
 
@@ -131,6 +132,7 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
   ) => {
     if (!online || busy || !activeDoctorId || status === "booked") return;
     const date = addDays(weekAnchor, dayIndex);
+    if (isCellPast(date, time, today)) return; // no editing past cells
     setActionError(null);
     setBusy(true);
     try {

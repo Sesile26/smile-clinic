@@ -22,7 +22,7 @@ import { apiError, getActor, isStaff } from "@/lib/booking-server";
 class BookingError extends Error {
   constructor(
     public httpStatus: number,
-    public code: "not_found" | "slot_taken" | "validation",
+    public code: "not_found" | "slot_taken" | "validation" | "past",
     message: string,
   ) {
     super(message);
@@ -46,6 +46,10 @@ export async function POST(request: Request) {
   if (!slotId) return apiError(400, "validation", "slotId є обовʼязковим");
 
   try {
+    // Single "now" reused by the read-side guard and the atomic claim below,
+    // so they agree. Comparison is by moment (UTC), not by calendar day.
+    const now = new Date();
+
     const result = await prisma.$transaction(async (tx) => {
       // 1) Resolve the patient. A Google-only user may have no Patient yet —
       //    create one from the User's name/email, phone stays NULL (nullable).
@@ -90,6 +94,12 @@ export async function POST(request: Request) {
       if (slot.status !== SlotStatus.free) {
         throw new BookingError(409, "slot_taken", "Слот уже зайнято");
       }
+      // Past slots can't be booked. This read-side check gives a clear message;
+      // the atomic claim below ALSO guards `startsAt >= now` so the rule can't
+      // be bypassed by a race.
+      if (slot.startsAt < now) {
+        throw new BookingError(409, "past", "Цей час уже минув");
+      }
 
       // 3) Create the appointment (confirmed) in the SAME transaction.
       const appointment = await tx.appointment.create({
@@ -102,11 +112,13 @@ export async function POST(request: Request) {
         select: { id: true, date: true, doctorId: true },
       });
 
-      // 4) Atomic claim. Only succeeds if the slot is STILL free. If a
-      //    concurrent booking won, count === 0 → throw → whole tx (incl. the
-      //    appointment above) rolls back. No orphan appointment, no double book.
+      // 4) Atomic claim. Only succeeds if the slot is STILL free AND not in the
+      //    past. The `startsAt >= now` condition lives in the SAME where as the
+      //    status guard, so a past slot can never be claimed. If a concurrent
+      //    booking won, count === 0 → throw → whole tx (incl. the appointment
+      //    above) rolls back. No orphan appointment, no double book.
       const claim = await tx.availabilitySlot.updateMany({
-        where: { id: slotId, status: SlotStatus.free },
+        where: { id: slotId, status: SlotStatus.free, startsAt: { gte: now } },
         data: { status: SlotStatus.booked, appointmentId: appointment.id },
       });
       if (claim.count !== 1) {

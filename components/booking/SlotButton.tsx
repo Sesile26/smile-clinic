@@ -15,6 +15,8 @@ interface SlotButtonProps {
   variant: SlotVariant;
   /** Disables interaction but keeps the slot visible (offline / read-only). */
   disabled?: boolean;
+  /** Slot start is in the past — muted, never actionable. */
+  past?: boolean;
   /** Roving-tabindex: only the active cell is in the tab order. */
   tabIndex?: number;
   onClick?: () => void;
@@ -48,6 +50,7 @@ export const SlotButton = forwardRef<HTMLButtonElement, SlotButtonProps>(
       time,
       variant,
       disabled,
+      past,
       tabIndex,
       onClick,
       onKeyDown,
@@ -57,42 +60,51 @@ export const SlotButton = forwardRef<HTMLButtonElement, SlotButtonProps>(
     ref,
   ) {
     const isBooked = variant === "booked";
-    const isToggle = variant === "off" || variant === "working";
+    const isPast = !!past;
+    // Past slots are never a live toggle, regardless of underlying status.
+    const isToggle = !isPast && (variant === "off" || variant === "working");
 
-    const label = isBooked
-      ? `${time} — зайнято, є запис`
-      : variant === "working"
-        ? `${time} — працюю`
-        : `${time} — вільно`;
+    const label = isPast
+      ? `${time} — час уже минув`
+      : isBooked
+        ? `${time} — зайнято, є запис`
+        : variant === "working"
+          ? `${time} — працюю`
+          : `${time} — вільно`;
 
     return (
       <button
         ref={ref}
         type="button"
-        disabled={disabled || isBooked}
+        disabled={disabled || isBooked || isPast}
         tabIndex={tabIndex}
         onClick={onClick}
         onKeyDown={onKeyDown}
         onFocusCapture={onFocusCapture}
         aria-label={label}
         aria-pressed={isToggle ? variant === "working" : undefined}
-        title={isBooked ? "Зайнято — є запис" : undefined}
+        title={
+          isPast ? "Час уже минув" : isBooked ? "Зайнято — є запис" : undefined
+        }
         className={cn(
           "flex w-full items-center justify-center gap-1 rounded-lg border px-2 py-2 text-[13px] font-medium tabular-nums transition-colors duration-150",
           "focus:outline-none focus-visible:ring-2 focus-visible:ring-mint focus-visible:ring-offset-1",
           "disabled:cursor-not-allowed",
-          VARIANT_CLASS[variant],
-          disabled && !isBooked && "opacity-50",
+          // Past styling overrides the status variant: muted grey, no hover.
+          isPast
+            ? "border-[color:var(--line)] bg-cream/40 text-navy-400/50 line-through"
+            : VARIANT_CLASS[variant],
+          !isPast && disabled && !isBooked && "opacity-50",
           className,
         )}
       >
         <span>{time}</span>
-        {isBooked && (
+        {!isPast && isBooked && (
           <span aria-hidden="true" className="text-[10px] uppercase tracking-wide">
             ·зайнято
           </span>
         )}
-        {variant === "working" && (
+        {!isPast && variant === "working" && (
           <svg
             aria-hidden="true"
             width="12"
