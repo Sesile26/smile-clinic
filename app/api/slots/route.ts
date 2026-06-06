@@ -3,6 +3,7 @@ import { Prisma } from "@/lib/generated/prisma/client";
 import { SlotStatus } from "@/lib/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import { apiError, canManageDoctor, getActor } from "@/lib/booking-server";
+import { SLOT_DURATION_MIN } from "@/lib/booking-time";
 import type { ApiSlot } from "@/lib/booking-types";
 
 /**
@@ -122,6 +123,17 @@ export async function POST(request: Request) {
   const end = new Date(endsAt);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start >= end) {
     return apiError(400, "validation", "Невалідний час слота");
+  }
+
+  // Booking is hour-only: the server rejects any slot that isn't exactly
+  // SLOT_DURATION_MIN (60 min), so the UI and the DB can never drift apart.
+  const minutes = Math.round((end.getTime() - start.getTime()) / 60000);
+  if (minutes !== SLOT_DURATION_MIN) {
+    return apiError(
+      400,
+      "validation",
+      `Тривалість слота має бути ${SLOT_DURATION_MIN} хв`,
+    );
   }
 
   try {

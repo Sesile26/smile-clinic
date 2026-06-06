@@ -12,7 +12,11 @@ import {
   deleteSlot,
   BookingApiError,
 } from "@/lib/booking-client";
-import { cellEndUtcISO, cellToUtcISO } from "@/lib/booking-time";
+import {
+  cellEndUtcISO,
+  cellToUtcISO,
+  SLOT_DURATION_MIN,
+} from "@/lib/booking-time";
 import {
   addDays,
   addMonths,
@@ -25,7 +29,6 @@ import {
   manageTimes,
   startOfMonth,
   startOfWeek,
-  type SlotDuration,
   type SlotStatus,
   type ViewMode,
 } from "./data";
@@ -57,7 +60,6 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
   const isStaffAdmin = identity.role === "STAFF" || identity.role === "ADMIN";
 
   const [view, setView] = useState<ViewMode>("week");
-  const [duration, setDuration] = useState<SlotDuration>(30);
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>("");
   const [weekAnchor, setWeekAnchor] = useState(() => startOfWeek(today));
   const [monthAnchor, setMonthAnchor] = useState(() => startOfMonth(today));
@@ -105,7 +107,7 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
   });
 
   const maps = useMemo(() => indexSlots(slots), [slots]);
-  const times = useMemo(() => manageTimes(duration), [duration]);
+  const times = useMemo(() => manageTimes(SLOT_DURATION_MIN), []);
   const week = useMemo(
     () => assembleWeek(weekAnchor, times, maps.statusByCell),
     [weekAnchor, times, maps],
@@ -139,7 +141,7 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
         await createSlot(
           activeDoctorId,
           cellToUtcISO(date, time),
-          cellEndUtcISO(date, time, duration),
+          cellEndUtcISO(date, time, SLOT_DURATION_MIN),
         );
       }
       reload();
@@ -233,8 +235,6 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
         onPrev={() => shift(-1)}
         onNext={() => shift(1)}
         onToday={goToday}
-        duration={duration}
-        onDurationChange={setDuration}
       />
 
       {actionError && (

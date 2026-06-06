@@ -14,9 +14,13 @@
  * client components.
  */
 
-export type SlotDuration = 15 | 30 | 60;
+// Booking is hour-only. The single source of truth for slot length — UI grid,
+// slot creation, and the API validation all derive from this.
+export type SlotDuration = 60;
 
-export const SLOT_DURATIONS: SlotDuration[] = [15, 30, 60];
+export const SLOT_DURATION_MIN: SlotDuration = 60;
+
+export const SLOT_DURATIONS: SlotDuration[] = [60];
 
 /** Clinic working window, in local minutes-from-midnight. */
 export const WORK_START_MIN = 9 * 60; // 09:00
@@ -37,8 +41,11 @@ export function timeToMinutes(time: string): number {
   return h * 60 + m;
 }
 
-/** Grid time labels for a given slot duration across the working window. */
-export function buildTimes(duration: SlotDuration): string[] {
+/**
+ * Hourly grid time labels across the working window (09:00, 10:00, … 17:00).
+ * `duration` is always 60 now; the param is kept for call-site clarity.
+ */
+export function buildTimes(duration: SlotDuration = SLOT_DURATION_MIN): string[] {
   const out: string[] = [];
   for (let m = WORK_START_MIN; m < WORK_END_MIN; m += duration) {
     out.push(minutesToTime(m));

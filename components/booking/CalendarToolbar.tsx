@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/cn";
 import { IcoChevron } from "@/components/icons";
-import type { SlotDuration, ViewMode } from "./data";
+import type { ViewMode } from "./data";
 
 interface CalendarToolbarProps {
   view: ViewMode;
@@ -11,12 +11,7 @@ interface CalendarToolbarProps {
   onPrev: () => void;
   onNext: () => void;
   onToday: () => void;
-  /** Duration control is doctor-only; omit for the patient view. */
-  duration?: SlotDuration;
-  onDurationChange?: (d: SlotDuration) => void;
 }
-
-const DURATIONS: SlotDuration[] = [15, 30, 60];
 
 export function CalendarToolbar({
   view,
@@ -25,8 +20,6 @@ export function CalendarToolbar({
   onPrev,
   onNext,
   onToday,
-  duration,
-  onDurationChange,
 }: CalendarToolbarProps) {
   return (
     <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -63,32 +56,6 @@ export function CalendarToolbar({
       </div>
 
       <div className="flex items-center gap-2">
-        {/* Duration control (doctor only) */}
-        {duration !== undefined && onDurationChange && (
-          <div
-            role="group"
-            aria-label="Тривалість слота"
-            className="flex items-center rounded-full bg-cream p-1"
-          >
-            {DURATIONS.map((d) => (
-              <button
-                key={d}
-                type="button"
-                aria-pressed={d === duration}
-                onClick={() => onDurationChange(d)}
-                className={cn(
-                  "rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-mint",
-                  d === duration
-                    ? "bg-white text-navy-900 shadow-[0_2px_8px_rgba(10,22,40,0.08)]"
-                    : "text-navy-400 hover:text-navy-900",
-                )}
-              >
-                {d} хв
-              </button>
-            ))}
-          </div>
-        )}
-
         {/* Week / Month switch */}
         <div
           role="group"

@@ -24,13 +24,15 @@ const DOCTORS = [
   { id: "seed-doc-5", name: "Софія Тарасенко", specialty: "Невідкладна допомога" },
 ];
 
+// Booking is hour-only: hourly starts across the working window (13:00 lunch
+// skipped). Matches the /booking grid and the /api/slots 60-min validation.
 const WORK_TIMES = [
-  "09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "12:00", "12:30",
+  "09:00", "10:00", "11:00", "12:00",
   // 13:00 lunch
-  "14:00", "14:30", "15:00", "15:30", "16:00", "16:30",
+  "14:00", "15:00", "16:00", "17:00",
 ];
 const DAYS_AHEAD = 10;
-const DURATION_MIN = 30;
+const DURATION_MIN = 60;
 
 // Small stable hash so the same cell always gets the same gap decision.
 function hash(s) {
