@@ -1,6 +1,7 @@
 import { LoginModalProvider } from "@/components/ui/LoginModalProvider";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
+import { HashScrollHandler } from "@/components/home/HashScrollHandler";
 import { HeroSection } from "@/components/home/HeroSection";
 import { MarqueeSection } from "@/components/home/MarqueeSection";
 import { ServicesSection } from "@/components/home/ServicesSection";
@@ -12,6 +13,7 @@ import { CtaBannerSection } from "@/components/home/CtaBannerSection";
 export default function HomePage() {
   return (
     <LoginModalProvider>
+      <HashScrollHandler />
       <Header />
       <main>
         <HeroSection />

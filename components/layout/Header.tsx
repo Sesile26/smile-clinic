@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { cn } from "@/lib/cn";
 import { wipeDexie } from "@/lib/db";
@@ -8,22 +10,29 @@ import { btnBase, btnMint } from "@/lib/buttons";
 import { useLoginModal } from "@/components/ui/LoginModalProvider";
 import { IcoArrow, IcoMenu, IcoTooth } from "@/components/icons";
 
+// Section anchors on the home page. Always prefixed with "/" so a click from
+// another route (e.g. /booking) navigates home first, then scrolls — the
+// HashScrollHandler on the home page handles the post-mount scroll.
 const NAV_LINKS = [
-  { href: "#services", label: "Послуги" },
-  { href: "#doctors", label: "Лікарі" },
-  { href: "#prices", label: "Ціни" },
-  { href: "#contacts", label: "Контакти" },
+  { href: "/#services", label: "Послуги" },
+  { href: "/#doctors", label: "Лікарі" },
+  { href: "/#prices", label: "Ціни" },
+  { href: "/#contacts", label: "Контакти" },
 ];
 
 function Logo() {
   return (
-    <a href="#" className="flex items-center gap-2.5 font-serif text-2xl font-medium tracking-[-0.01em]">
+    <Link
+      href="/"
+      aria-label="SmileClinic — на головну"
+      className="flex items-center gap-2.5 rounded-md font-serif text-2xl font-medium tracking-[-0.01em] focus:outline-none focus-visible:ring-2 focus-visible:ring-mint focus-visible:ring-offset-2"
+    >
       <span className="relative grid h-[30px] w-[30px] place-items-center rounded-full bg-navy-900">
         <IcoTooth size={16} className="text-white" />
         <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-mint" />
       </span>
       SmileClinic
-    </a>
+    </Link>
   );
 }
 
@@ -157,8 +166,39 @@ function AvatarMenu({ user }: AvatarMenuProps) {
 export function Header() {
   const { open } = useLoginModal();
   const { data: session, status } = useSession();
+  const pathname = usePathname();
+  const onBooking = pathname === "/booking";
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // Section nav. When NOT on home, let <Link href="/#id"> navigate home — the
+  // HashScrollHandler scrolls after mount. When ALREADY on home, intercept and
+  // smooth-scroll ourselves, then update the hash without a reload. (Doing this
+  // manually avoids App Router appending a second hash like "#prices#services"
+  // and guarantees a smooth, header-offset scroll.) Modifier/middle clicks are
+  // left alone so Ctrl/⌘/middle-click still open a new tab.
+  const handleSectionNav = (
+    e: React.MouseEvent<HTMLAnchorElement>,
+    href: string,
+  ) => {
+    if (
+      pathname !== "/" ||
+      e.defaultPrevented ||
+      e.button !== 0 ||
+      e.metaKey ||
+      e.ctrlKey ||
+      e.shiftKey ||
+      e.altKey
+    ) {
+      return;
+    }
+    const id = href.split("#")[1];
+    const el = id ? document.getElementById(id) : null;
+    if (!el) return;
+    e.preventDefault();
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.history.pushState(null, "", `#${id}`);
+  };
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -181,14 +221,15 @@ export function Header() {
 
         <nav className="hidden gap-8 text-sm font-medium text-navy-700 md:flex">
           {NAV_LINKS.map((link) => (
-            <a
+            <Link
               key={link.href}
               href={link.href}
+              onClick={(e) => handleSectionNav(e, link.href)}
               className="group relative py-1.5 transition-colors duration-200 hover:text-navy-900"
             >
               {link.label}
               <span className="absolute -bottom-0.5 left-0 right-0 h-px origin-left scale-x-0 bg-mint transition-transform duration-300 ease-smooth group-hover:scale-x-100" />
-            </a>
+            </Link>
           ))}
         </nav>
 
@@ -211,10 +252,19 @@ export function Header() {
               Увійти
             </button>
           )}
-          <a href="#booking" className={cn(btnBase, btnMint, "hidden sm:inline-flex")}>
+          <Link
+            href="/booking"
+            aria-current={onBooking ? "page" : undefined}
+            className={cn(
+              btnBase,
+              btnMint,
+              "hidden sm:inline-flex",
+              onBooking && "ring-2 ring-mint-600/50 ring-offset-2 ring-offset-white",
+            )}
+          >
             Записатися
             <IcoArrow size={16} />
-          </a>
+          </Link>
           <button
             type="button"
             aria-label="Меню"
@@ -232,23 +282,32 @@ export function Header() {
         <div className="border-t border-[color:var(--line)] bg-white/95 px-5 py-4 backdrop-blur-[14px] md:hidden">
           <nav className="flex flex-col gap-1">
             {NAV_LINKS.map((link) => (
-              <a
+              <Link
                 key={link.href}
                 href={link.href}
-                onClick={() => setMenuOpen(false)}
+                onClick={(e) => {
+                  setMenuOpen(false);
+                  handleSectionNav(e, link.href);
+                }}
                 className="rounded-md px-2 py-2.5 text-sm font-medium text-navy-700 hover:bg-cream"
               >
                 {link.label}
-              </a>
+              </Link>
             ))}
-            <a
-              href="#booking"
+            <Link
+              href="/booking"
+              aria-current={onBooking ? "page" : undefined}
               onClick={() => setMenuOpen(false)}
-              className={cn(btnBase, btnMint, "mt-2 justify-center sm:hidden")}
+              className={cn(
+                btnBase,
+                btnMint,
+                "mt-2 justify-center sm:hidden",
+                onBooking && "ring-2 ring-mint-600/50 ring-offset-2 ring-offset-white",
+              )}
             >
               Записатися
               <IcoArrow size={16} />
-            </a>
+            </Link>
           </nav>
         </div>
       )}

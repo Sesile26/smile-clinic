@@ -16,7 +16,7 @@ const STATS: Stat[] = [
 
 export function StatsSection() {
   return (
-    <section id="stats" className="bg-paper pb-[160px] pt-20">
+    <section id="prices" className="scroll-mt-24 bg-paper pb-[160px] pt-20">
       <Container className="relative">
         <SectionHeader
           className="mb-12 lg:mb-12"

@@ -48,7 +48,7 @@ function FootColumn({ heading, items }: { heading: string; items: string[] }) {
 
 export function Footer() {
   return (
-    <footer id="contacts" className="bg-navy-900 pb-10 pt-24 text-white/70">
+    <footer id="contacts" className="scroll-mt-24 bg-navy-900 pb-10 pt-24 text-white/70">
       <div className="mx-auto w-full max-w-[1280px] px-8 max-[720px]:px-5">
         <div className="mb-16 grid grid-cols-1 gap-14 md:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
           <div>

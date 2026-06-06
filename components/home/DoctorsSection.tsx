@@ -50,7 +50,7 @@ export function DoctorsSection() {
   return (
     <section
       id="doctors"
-      className="bg-paper pb-[140px] pt-20 max-[720px]:py-20"
+      className="scroll-mt-24 bg-paper pb-[140px] pt-20 max-[720px]:py-20"
     >
       <Container>
         <Reveal className="mb-12 grid grid-cols-1 items-start gap-6 lg:mb-[72px] lg:grid-cols-2 lg:items-end lg:gap-16">

@@ -61,7 +61,7 @@ const SERVICES: Service[] = [
 
 export function ServicesSection() {
   return (
-    <section id="services" className="bg-cream py-[140px] max-[720px]:py-20">
+    <section id="services" className="scroll-mt-24 bg-cream py-[140px] max-[720px]:py-20">
       <Container>
         <SectionHeader
           eyebrow="Послуги"
