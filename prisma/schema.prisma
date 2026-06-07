@@ -31,6 +31,18 @@ enum SlotStatus {
   booked
 }
 
+enum OrderStatus {
+  pending
+  confirmed
+  completed
+  cancelled
+}
+
+enum DeliveryMethod {
+  pickup
+  nova_poshta
+}
+
 // ─── Auth.js models ──────────────────────────────────────────────────────────
 
 model User {
@@ -47,6 +59,8 @@ model User {
   patient       Patient?  @relation(fields: [patientId], references: [id])
   // Зворотний звʼязок: акаунт лікаря (FK живе на Doctor.userId).
   doctor        Doctor?
+  // Замовлення магазину цього користувача (гостьові — з userId = NULL).
+  orders        Order[]
   accounts      Account[]
   sessions      Session[]
   createdAt     DateTime  @default(now())
@@ -151,4 +165,64 @@ model AvailabilitySlot {
 
   @@unique([doctorId, startsAt])
   @@index([doctorId, status, startsAt])
+}
+
+// ─── Shop ─────────────────────────────────────────────────────────────────────
+
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  // Гроші — Decimal, не Float (без похибок округлення). UAH.
+  price       Decimal  @db.Decimal(10, 2)
+  imageUrl    String?
+  category    String?
+  stock       Int      @default(0) // залишок; 0 = купити не можна
+  // Soft delete: "видалення" товару адміном = isActive=false. Реального DELETE
+  // не робимо — інакше зламалися б OrderItem наявних замовлень (FK Restrict).
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orderItems OrderItem[]
+
+  @@index([isActive])
+}
+
+model Order {
+  id             String         @id @default(cuid())
+  status         OrderStatus    @default(pending)
+  deliveryMethod DeliveryMethod
+  contactName    String
+  contactPhone   String
+  // Лише для nova_poshta; для самовивозу лишаються NULL.
+  npCity         String?
+  npWarehouse    String?
+  total          Decimal        @db.Decimal(10, 2)
+  // Гостьові замовлення дозволені: userId NULL. SetNull — видалення юзера не
+  // нищить історію замовлень (вони стають гостьовими).
+  userId         String?
+  user           User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  items          OrderItem[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model OrderItem {
+  id              String  @id @default(cuid())
+  orderId         String
+  order           Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId       String
+  // Без каскаду: БД не дасть фізично видалити товар з історією замовлень
+  // (підкріплює soft delete через Product.isActive).
+  product         Product @relation(fields: [productId], references: [id])
+  quantity        Int
+  // Фіксуємо ціну на момент покупки — історія не залежить від Product.price.
+  priceAtPurchase Decimal @db.Decimal(10, 2)
+
+  @@index([orderId])
+  @@index([productId])
 }
