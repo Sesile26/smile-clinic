@@ -14,8 +14,15 @@ export interface Product {
   description: string;
   /** Price in UAH (грн), integer. */
   price: number;
+  /** Units in stock. 0 → shown but not purchasable. */
+  stock: number;
   category: Category;
+  /** Optional product photo URL. Falls back to a brand placeholder if empty. */
+  imageUrl?: string;
 }
+
+/** Shop view role. Emulated by a local toggle until real roles are wired. */
+export type ShopRole = "buyer" | "admin";
 
 /** Demo-only switch to preview async UI states without a server. */
 export type DemoState = "ready" | "loading" | "empty" | "error";
@@ -37,6 +44,7 @@ export const PRODUCTS: Product[] = [
     name: "Зубна паста Mint Fresh",
     description: "Щоденний захист емалі з фтором і м’ятою. 75 мл.",
     price: 189,
+    stock: 24,
     category: "Догляд",
   },
   {
@@ -44,6 +52,7 @@ export const PRODUCTS: Product[] = [
     name: "Електрична щітка SonicPro",
     description: "Звукова технологія, 3 режими, таймер 2 хв.",
     price: 1499,
+    stock: 7,
     category: "Аксесуари",
   },
   {
@@ -51,6 +60,7 @@ export const PRODUCTS: Product[] = [
     name: "Набір для відбілювання White+",
     description: "Гель + капа. Освітлення до 4 тонів удома.",
     price: 899,
+    stock: 0, // out of stock — card shown, buying disabled
     category: "Відбілювання",
   },
   {
@@ -58,6 +68,7 @@ export const PRODUCTS: Product[] = [
     name: "Зубна нитка Silk Floss",
     description: "Вощена нитка з ароматом м’яти. 50 м.",
     price: 99,
+    stock: 50,
     category: "Догляд",
   },
   {
@@ -65,6 +76,7 @@ export const PRODUCTS: Product[] = [
     name: "Ополіскувач Mint Care",
     description: "Антибактеріальний, без спирту. 500 мл.",
     price: 149,
+    stock: 15,
     category: "Догляд",
   },
   {
@@ -72,6 +84,7 @@ export const PRODUCTS: Product[] = [
     name: "Дитяча паста Smile Kids",
     description: "Безпечна формула від 1 року, смак банана. 50 мл.",
     price: 129,
+    stock: 12,
     category: "Дитячі",
   },
   {
@@ -79,6 +92,7 @@ export const PRODUCTS: Product[] = [
     name: "Іригатор AquaJet",
     description: "Портативний, 4 насадки, 3 режими тиску.",
     price: 1990,
+    stock: 3,
     category: "Аксесуари",
   },
   {
@@ -86,6 +100,7 @@ export const PRODUCTS: Product[] = [
     name: "Відбілювальні смужки Bright",
     description: "14 пар смужок на 2 тижні курсу.",
     price: 649,
+    stock: 0, // out of stock — card shown, buying disabled
     category: "Відбілювання",
   },
   {
@@ -93,6 +108,7 @@ export const PRODUCTS: Product[] = [
     name: "Дитяча щітка Tooth Friends",
     description: "М’яка щетина, нековзка ручка. Від 3 років.",
     price: 159,
+    stock: 9,
     category: "Дитячі",
   },
 ];
