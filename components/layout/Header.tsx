@@ -168,6 +168,7 @@ export function Header() {
   const { data: session, status } = useSession();
   const pathname = usePathname();
   const onBooking = pathname === "/booking";
+  const onShop = pathname === "/shop";
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -231,6 +232,23 @@ export function Header() {
               <span className="absolute -bottom-0.5 left-0 right-0 h-px origin-left scale-x-0 bg-mint transition-transform duration-300 ease-smooth group-hover:scale-x-100" />
             </Link>
           ))}
+          {/* Real route (not a section anchor) — active state via usePathname. */}
+          <Link
+            href="/shop"
+            aria-current={onShop ? "page" : undefined}
+            className={cn(
+              "group relative py-1.5 transition-colors duration-200 hover:text-navy-900",
+              onShop && "text-navy-900",
+            )}
+          >
+            Магазин
+            <span
+              className={cn(
+                "absolute -bottom-0.5 left-0 right-0 h-px origin-left bg-mint transition-transform duration-300 ease-smooth",
+                onShop ? "scale-x-100" : "scale-x-0 group-hover:scale-x-100",
+              )}
+            />
+          </Link>
         </nav>
 
         <div className="flex items-center gap-2.5">
@@ -294,6 +312,17 @@ export function Header() {
                 {link.label}
               </Link>
             ))}
+            <Link
+              href="/shop"
+              aria-current={onShop ? "page" : undefined}
+              onClick={() => setMenuOpen(false)}
+              className={cn(
+                "rounded-md px-2 py-2.5 text-sm font-medium hover:bg-cream",
+                onShop ? "bg-cream text-navy-900" : "text-navy-700",
+              )}
+            >
+              Магазин
+            </Link>
             <Link
               href="/booking"
               aria-current={onBooking ? "page" : undefined}

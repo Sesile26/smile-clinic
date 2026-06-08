@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useSession } from "next-auth/react";
 import { cn } from "@/lib/cn";
 import { btnBase, btnMint } from "@/lib/buttons";
 import { IcoChevron, IcoClose } from "@/components/icons";
+import { useLoginModal } from "@/components/ui/LoginModalProvider";
 import { createOrder, npCities, npWarehouses, ShopApiError } from "@/lib/shop-client";
 import type { DeliveryMethod, NpOption } from "@/lib/shop-types";
 import { useCart, type CartItem } from "./CartContext";
@@ -37,6 +39,9 @@ interface PlacedOrder {
  */
 export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
   const { items, count, subtotal, inc, dec, remove, clear } = useCart();
+  const { status } = useSession();
+  const authed = status === "authenticated"; // ordering requires sign-in
+  const loginModal = useLoginModal();
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
@@ -111,11 +116,22 @@ export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
   const deliveryValid =
     delivery === "pickup" || (!!npCity && !!npWarehouse);
   const canSubmit =
-    online && !submitting && nameValid && phoneValid && deliveryValid;
+    authed && online && !submitting && nameValid && phoneValid && deliveryValid;
+
+  // Close the cart and open the auth modal; the cart (context) survives, so the
+  // user returns to a populated cart after signing in.
+  const promptLogin = () => {
+    onClose();
+    loginModal.open();
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setTouched(true);
+    if (!authed) {
+      promptLogin();
+      return;
+    }
     if (!canSubmit) return;
     setSubmitting(true);
     setSubmitError(null);
@@ -139,6 +155,8 @@ export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
     } catch (err) {
       if (err instanceof ShopApiError && err.code === "out_of_stock") {
         setSubmitError("Товару недостатньо в наявності. Оновіть кошик.");
+      } else if (err instanceof ShopApiError && err.code === "unauthorized") {
+        setSubmitError("Сесія завершилася. Увійдіть, щоб оформити замовлення.");
       } else if (err instanceof ShopApiError) {
         setSubmitError(err.message);
       } else {
@@ -283,20 +301,53 @@ export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
             </div>
 
             {step === "cart" ? (
-              <button
-                type="button"
-                data-autofocus
-                onClick={() => setStep("checkout")}
-                disabled={count === 0}
-                className={cn(
-                  btnBase,
-                  btnMint,
-                  "w-full justify-center",
-                  count === 0 && "cursor-not-allowed opacity-50",
-                )}
-              >
-                Оформити замовлення
-              </button>
+              authed ? (
+                <button
+                  type="button"
+                  data-autofocus
+                  onClick={() => setStep("checkout")}
+                  disabled={count === 0}
+                  className={cn(
+                    btnBase,
+                    btnMint,
+                    "w-full justify-center",
+                    count === 0 && "cursor-not-allowed opacity-50",
+                  )}
+                >
+                  Оформити замовлення
+                </button>
+              ) : (
+                // Guest: checkout disabled; ordering needs an account.
+                <>
+                  <button
+                    type="button"
+                    disabled
+                    aria-disabled="true"
+                    className={cn(
+                      btnBase,
+                      btnMint,
+                      "w-full cursor-not-allowed justify-center opacity-50",
+                    )}
+                  >
+                    Оформити замовлення
+                  </button>
+                  <button
+                    type="button"
+                    data-autofocus
+                    onClick={promptLogin}
+                    disabled={count === 0}
+                    className={cn(
+                      "mt-2 inline-flex w-full items-center justify-center rounded-full bg-navy-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-black focus:outline-none focus-visible:ring-2 focus-visible:ring-mint focus-visible:ring-offset-1",
+                      count === 0 && "cursor-not-allowed opacity-50",
+                    )}
+                  >
+                    Увійти / Зареєструватися
+                  </button>
+                  <p className="mt-2 text-center text-xs text-navy-400">
+                    Увійдіть, щоб оформити замовлення
+                  </p>
+                </>
+              )
             ) : (
               <>
                 <button

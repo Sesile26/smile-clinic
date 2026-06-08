@@ -30,8 +30,12 @@ class OrderError extends Error {
 }
 
 export async function POST(request: Request) {
-  // Optional: a signed-in user is linked; a guest checks out with userId = null.
+  // Orders require an authenticated user — no guest checkout. This is the
+  // authoritative gate; the UI block alone wouldn't stop a direct request.
   const actor = await getActor();
+  if (!actor) {
+    return shopError(401, "unauthorized", "Увійдіть, щоб оформити замовлення");
+  }
 
   let body: unknown;
   try {
@@ -116,7 +120,7 @@ export async function POST(request: Request) {
           npCity: deliveryMethod === "nova_poshta" ? npCity : null,
           npWarehouse: deliveryMethod === "nova_poshta" ? npWarehouse : null,
           total,
-          userId: actor?.userId ?? null,
+          userId: actor.userId, // always linked — guests are rejected above
           items: { create: itemsData },
         },
         select: { id: true, status: true, total: true },
