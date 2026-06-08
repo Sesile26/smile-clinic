@@ -57,13 +57,16 @@ function ShopInner() {
     return [...set].sort((a, b) => a.localeCompare(b, "uk"));
   }, [products]);
 
-  const filtered = useMemo(
-    () =>
+  const filtered = useMemo(() => {
+    const list =
       category === "all"
         ? products
-        : products.filter((p) => p.category === category),
-    [products, category],
-  );
+        : products.filter((p) => p.category === category);
+    // Availability sort: in-stock (active) first, out-of-stock last. Array.sort
+    // is stable, so the existing order is preserved WITHIN each group.
+    const inStock = (p: ApiProduct) => (p.isActive && p.stock > 0 ? 1 : 0);
+    return [...list].sort((a, b) => inStock(b) - inStock(a));
+  }, [products, category]);
 
   const qtyById = useMemo(() => {
     const m = new Map<string, number>();

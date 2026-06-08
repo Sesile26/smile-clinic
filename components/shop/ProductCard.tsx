@@ -120,14 +120,16 @@ export function ProductCard({
           </p>
         )}
 
-        {/* Stock line */}
+        {/* Availability STATUS only — never the exact stock number. The real
+            stock limit still applies silently (add button disabled at the cap;
+            server re-checks on order). */}
         <p
           className={cn(
             "mt-3 text-xs font-medium",
-            outOfStock ? "text-red-600" : "text-navy-400",
+            outOfStock ? "text-red-600" : "text-mint-600",
           )}
         >
-          {outOfStock ? "Немає в наявності" : `В наявності: ${product.stock} шт`}
+          {outOfStock ? "Немає в наявності" : "В наявності"}
         </p>
 
         <div className="mt-2 flex items-center justify-between gap-3">

@@ -37,6 +37,13 @@ export function useCart(): CartContextValue {
 
 const MAX_QTY = 99;
 
+/** Upper bound for a line = the product's REAL stock (capped at MAX_QTY). The
+ *  cap is silent — we never surface the number; the user just can't go higher.
+ *  The server re-validates stock on order regardless. */
+function capQty(item: CartItem, desired: number): number {
+  return Math.min(desired, item.product.stock, MAX_QTY);
+}
+
 /**
  * Cart lives entirely in React state — NO localStorage (per spec). It resets on
  * reload, which is fine for a demo storefront.
@@ -50,10 +57,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
       if (existing) {
         return prev.map((i) =>
           i.product.id === product.id
-            ? { ...i, qty: Math.min(MAX_QTY, i.qty + 1) }
+            ? { ...i, qty: capQty(i, i.qty + 1) }
             : i,
         );
       }
+      // Refresh the stored product snapshot to the latest passed-in data.
       return [...prev, { product, qty: 1 }];
     });
   }, []);
@@ -63,7 +71,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       prev
         .map((i) =>
           i.product.id === id
-            ? { ...i, qty: Math.max(0, Math.min(MAX_QTY, qty)) }
+            ? { ...i, qty: Math.max(0, capQty(i, qty)) }
             : i,
         )
         // qty 0 removes the line
@@ -75,9 +83,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     (id: string) =>
       setItems((prev) =>
         prev.map((i) =>
-          i.product.id === id
-            ? { ...i, qty: Math.min(MAX_QTY, i.qty + 1) }
-            : i,
+          i.product.id === id ? { ...i, qty: capQty(i, i.qty + 1) } : i,
         ),
       ),
     [],
