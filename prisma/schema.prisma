@@ -43,28 +43,37 @@ enum DeliveryMethod {
   nova_poshta
 }
 
+enum NotificationType {
+  appointment_status
+  order_new
+  order_status
+}
+
 // ─── Auth.js models ──────────────────────────────────────────────────────────
 
 model User {
-  id            String    @id @default(cuid())
+  id            String         @id @default(cuid())
   name          String?
-  email         String?   @unique
+  email         String?        @unique
   emailVerified DateTime?
   image         String?
   // Bcrypt hash for Credentials provider. NULL means the account was created
   // through OAuth (Google) only and cannot sign in via password.
   passwordHash  String?
-  role          Role      @default(PATIENT)
-  patientId     String?   @unique
-  patient       Patient?  @relation(fields: [patientId], references: [id])
+  role          Role           @default(PATIENT)
+  patientId     String?        @unique
+  patient       Patient?       @relation(fields: [patientId], references: [id])
   // Зворотний звʼязок: акаунт лікаря (FK живе на Doctor.userId).
   doctor        Doctor?
   // Замовлення магазину цього користувача (гостьові — з userId = NULL).
   orders        Order[]
+  // Сповіщення цього користувача (роль-аваре: пацієнт — про свої записи,
+  // staff/admin — про замовлення). Кожен бачить лише свої.
+  notifications Notification[]
   accounts      Account[]
   sessions      Session[]
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 }
 
 model Account {
@@ -225,4 +234,24 @@ model OrderItem {
 
   @@index([orderId])
   @@index([productId])
+}
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String           @id @default(cuid())
+  // Отримувач. onDelete: Cascade — видалення користувача прибирає його
+  // сповіщення (вони безглузді без власника).
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  body      String?
+  isRead    Boolean          @default(false)
+  // Куди вести по кліку, напр. "/my/appointments" чи "/admin/orders".
+  link      String?
+  createdAt DateTime         @default(now())
+
+  // Швидкий запит непрочитаних користувача в хронологічному порядку.
+  @@index([userId, isRead, createdAt])
 }
