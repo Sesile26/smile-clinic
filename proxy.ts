@@ -10,7 +10,7 @@ const STAFF_ROUTES = ["/dashboard", "/patients", "/appointments", "/admin"];
 // Routes that require any authenticated user (role-specific UI is decided in
 // the page itself — /booking shows slot management to doctors/staff/admin and
 // booking to patients; here we only require a session).
-const AUTH_ROUTES = ["/cabinet", "/booking"];
+const AUTH_ROUTES = ["/cabinet", "/booking", "/my"];
 
 export default auth((req) => {
   const { nextUrl } = req;

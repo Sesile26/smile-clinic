@@ -155,6 +155,15 @@ function AvatarMenu({ user, role }: AvatarMenuProps) {
               <div className="truncate text-xs text-navy-400">{user.email}</div>
             )}
           </div>
+          {/* Any signed-in user can see their own appointment history. */}
+          <Link
+            href="/my/appointments"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="block w-full border-b border-[color:var(--line)] px-4 py-2.5 text-left text-sm font-medium text-navy-900 transition-colors duration-150 hover:bg-cream focus:bg-cream focus:outline-none"
+          >
+            Мої записи
+          </Link>
           {isStaff && (
             <Link
               href="/admin/orders"
