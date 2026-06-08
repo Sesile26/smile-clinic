@@ -42,6 +42,8 @@ interface AvatarMenuProps {
     email?: string | null;
     image?: string | null;
   };
+  /** Session role — gates the staff-only menu items. */
+  role?: string;
 }
 
 /**
@@ -54,11 +56,11 @@ interface AvatarMenuProps {
  *     points at localhost/private hosts — `no-referrer` makes that reliable;
  *   - the file is 40×40 px, next/image optimisation gain is negligible here.
  */
-function AvatarMenu({ user }: AvatarMenuProps) {
+function AvatarMenu({ user, role }: AvatarMenuProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const firstItemRef = useRef<HTMLButtonElement>(null);
+  const isStaff = role === "STAFF" || role === "ADMIN";
 
   // Click-outside + Escape close. Listeners are only attached while open
   // to avoid the "clicked trigger to open immediately closes" race.
@@ -86,9 +88,14 @@ function AvatarMenu({ user }: AvatarMenuProps) {
     };
   }, [open]);
 
-  // Move focus to the first interactive item on open.
+  // Move focus to the first menu item on open (the orders link for staff,
+  // otherwise "Вийти").
   useEffect(() => {
-    if (open) firstItemRef.current?.focus();
+    if (open) {
+      containerRef.current
+        ?.querySelector<HTMLElement>('[role="menuitem"]')
+        ?.focus();
+    }
   }, [open]);
 
   const fallbackLetter = (user.name ?? user.email ?? "?")
@@ -148,8 +155,17 @@ function AvatarMenu({ user }: AvatarMenuProps) {
               <div className="truncate text-xs text-navy-400">{user.email}</div>
             )}
           </div>
+          {isStaff && (
+            <Link
+              href="/admin/orders"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="block w-full border-b border-[color:var(--line)] px-4 py-2.5 text-left text-sm font-medium text-navy-900 transition-colors duration-150 hover:bg-cream focus:bg-cream focus:outline-none"
+            >
+              Замовлення магазину
+            </Link>
+          )}
           <button
-            ref={firstItemRef}
             type="button"
             role="menuitem"
             onClick={handleSignOut}
@@ -260,7 +276,7 @@ export function Header() {
               className="h-10 w-10 animate-pulse rounded-full bg-cream"
             />
           ) : status === "authenticated" && session?.user ? (
-            <AvatarMenu user={session.user} />
+            <AvatarMenu user={session.user} role={session.user.role} />
           ) : (
             <button
               type="button"

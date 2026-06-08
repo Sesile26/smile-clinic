@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 // + `config` shape; this file replaces the old middleware.ts.
 
 // Routes that require ADMIN or STAFF role
-const STAFF_ROUTES = ["/dashboard", "/patients", "/appointments"];
+const STAFF_ROUTES = ["/dashboard", "/patients", "/appointments", "/admin"];
 
 // Routes that require any authenticated user (role-specific UI is decided in
 // the page itself — /booking shows slot management to doctors/staff/admin and
