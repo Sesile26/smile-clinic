@@ -6,6 +6,7 @@ import {
 } from "@/lib/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import { apiError, getActor, isStaff } from "@/lib/booking-server";
+import { createNotification } from "@/lib/notifications";
 
 /**
  * Bookings.
@@ -188,6 +189,26 @@ export async function DELETE(request: Request) {
         data: { status: SlotStatus.free, appointmentId: null },
       }),
     ]);
+
+    // Notify the patient that their appointment was cancelled (covers the
+    // staff/doctor-initiated path). Best-effort — never fail the cancel.
+    try {
+      const owner = await prisma.user.findFirst({
+        where: { patientId: appt.patientId },
+        select: { id: true },
+      });
+      if (owner) {
+        await createNotification({
+          userId: owner.id,
+          type: "appointment_status",
+          title: "Запис скасовано",
+          body: "Ваш запис було скасовано.",
+          link: "/my/appointments",
+        });
+      }
+    } catch (e) {
+      console.error("notify (booking cancel) failed", e);
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err) {

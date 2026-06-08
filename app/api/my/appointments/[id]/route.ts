@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { AppointmentStatus, SlotStatus } from "@/lib/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import { apiError, getActor } from "@/lib/booking-server";
+import { createNotification } from "@/lib/notifications";
 import type { MyAppointment } from "@/lib/my-appointments";
 
 /**
@@ -83,6 +84,20 @@ export async function PATCH(
         doctor: { select: { name: true, specialty: true } },
       },
     });
+    // Notify the patient about their appointment status change. Best-effort —
+    // a notification failure must not fail the cancel itself.
+    try {
+      await createNotification({
+        userId: actor.userId,
+        type: "appointment_status",
+        title: "Запис скасовано",
+        body: `${updated.doctor.name} · ${updated.doctor.specialty}`,
+        link: "/my/appointments",
+      });
+    } catch (e) {
+      console.error("notify (appointment cancel) failed", e);
+    }
+
     return NextResponse.json<MyAppointment>({
       id: updated.id,
       date: updated.date.toISOString(),

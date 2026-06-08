@@ -3,6 +3,7 @@ import { Prisma } from "@/lib/generated/prisma/client";
 import { DeliveryMethod } from "@/lib/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import { getActor, isValidUaPhone, shopError } from "@/lib/shop-server";
+import { notifyStaff } from "@/lib/notifications";
 import type { ApiOrder, OrderItemInput } from "@/lib/shop-types";
 
 /**
@@ -141,6 +142,18 @@ export async function POST(request: Request) {
 
       return created;
     });
+
+    // Notify all staff/admin about the new order. Best-effort.
+    try {
+      await notifyStaff({
+        type: "order_new",
+        title: "Нове замовлення",
+        body: `${contactName} · ${order.total.toNumber().toLocaleString("uk-UA")} ₴`,
+        link: "/admin/orders",
+      });
+    } catch (e) {
+      console.error("notify (order_new) failed", e);
+    }
 
     return NextResponse.json<ApiOrder>(
       { id: order.id, status: order.status, total: order.total.toNumber() },

@@ -3,7 +3,15 @@ import { Prisma } from "@/lib/generated/prisma/client";
 import { OrderStatus } from "@/lib/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import { getActor, isStaff, shopError } from "@/lib/shop-server";
+import { createNotification } from "@/lib/notifications";
 import type { AdminOrder } from "@/lib/admin-orders";
+
+const STATUS_LABEL: Record<string, string> = {
+  pending: "Новий",
+  confirmed: "Підтверджено",
+  completed: "Виконано",
+  cancelled: "Скасовано",
+};
 
 /**
  * PATCH /api/admin/orders/[id] — change order status. STAFF/ADMIN only.
@@ -112,6 +120,25 @@ export async function PATCH(
         },
       },
     });
+
+    // Notify the buyer (if the order is linked to a user) about the new status.
+    // Best-effort; guest orders (userId null) get nothing.
+    if (updated.userId) {
+      try {
+        await createNotification({
+          userId: updated.userId,
+          type: "order_status",
+          title: "Статус замовлення оновлено",
+          body: `Замовлення ${updated.id.slice(-6).toUpperCase()}: ${
+            STATUS_LABEL[updated.status] ?? updated.status
+          }`,
+          link: null,
+        });
+      } catch (e) {
+        console.error("notify (order_status) failed", e);
+      }
+    }
+
     return NextResponse.json<AdminOrder>(toApi(updated));
   } catch (err) {
     if (
