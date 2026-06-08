@@ -4,14 +4,10 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { btnBase, btnMint } from "@/lib/buttons";
 import { IcoChevron, IcoClose } from "@/components/icons";
+import { createOrder, npCities, npWarehouses, ShopApiError } from "@/lib/shop-client";
+import type { DeliveryMethod, NpOption } from "@/lib/shop-types";
 import { useCart, type CartItem } from "./CartContext";
-import {
-  CITIES,
-  CLINIC_ADDRESS,
-  formatUAH,
-  isValidUaPhone,
-  type DeliveryMethod,
-} from "./data";
+import { CLINIC_ADDRESS, formatUAH, isValidUaPhone } from "./data";
 import { OfflineNotice } from "./StatePanels";
 
 type Step = "cart" | "checkout" | "done";
@@ -28,16 +24,16 @@ const FOCUSABLE =
 
 interface PlacedOrder {
   items: CartItem[];
-  subtotal: number;
-  delivery: DeliveryMethod;
+  total: number;
   deliveryLabel: string;
 }
 
 /**
- * Right-side cart drawer with three internal steps: cart → checkout → done.
- * a11y mirrors LoginModal/ConfirmModal: role=dialog + aria-modal, scroll lock,
- * Escape to close, focus trap, focus restore. Cart state comes from CartContext
- * (no localStorage). Checkout is purely visual — submit just shows success.
+ * Right-side cart drawer: cart → checkout → done. a11y mirrors LoginModal
+ * (role=dialog, scroll lock, Escape, focus trap, focus restore). Cart state is
+ * local (CartContext, no localStorage). Checkout calls POST /api/orders — the
+ * SERVER computes the total from Product.price; we display the client subtotal
+ * only as a preview. Nova Poshta city/warehouse come from the server proxy.
  */
 export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
   const { items, count, subtotal, inc, dec, remove, clear } = useCart();
@@ -47,15 +43,15 @@ export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
   const [step, setStep] = useState<Step>("cart");
   const [placed, setPlaced] = useState<PlacedOrder | null>(null);
 
-  // Checkout form state
+  // Checkout form
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("+380");
   const [delivery, setDelivery] = useState<DeliveryMethod>("pickup");
-  const [cityName, setCityName] = useState(CITIES[0].name);
-  const [branch, setBranch] = useState("");
+  const [npCity, setNpCity] = useState<NpOption | null>(null);
+  const [npWarehouse, setNpWarehouse] = useState<NpOption | null>(null);
   const [touched, setTouched] = useState(false);
-
-  const city = CITIES.find((c) => c.name === cityName) ?? CITIES[0];
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Scroll lock + autofocus + focus restore.
   useEffect(() => {
@@ -63,9 +59,7 @@ export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
     const previouslyFocused = document.activeElement as HTMLElement | null;
     document.body.style.overflow = "hidden";
     const t = window.setTimeout(() => {
-      panelRef.current
-        ?.querySelector<HTMLElement>("[data-autofocus]")
-        ?.focus();
+      panelRef.current?.querySelector<HTMLElement>("[data-autofocus]")?.focus();
     }, 80);
     return () => {
       window.clearTimeout(t);
@@ -74,14 +68,14 @@ export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
     };
   }, [open, step]);
 
-  // Reset transient state when the drawer fully closes.
+  // Reset transient state after the drawer closes.
   useEffect(() => {
     if (!open) {
-      // Defer so the close animation isn't interrupted by a content swap.
       const t = window.setTimeout(() => {
         setStep("cart");
         setPlaced(null);
         setTouched(false);
+        setSubmitError(null);
       }, 250);
       return () => window.clearTimeout(t);
     }
@@ -114,20 +108,45 @@ export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
 
   const phoneValid = isValidUaPhone(phone);
   const nameValid = name.trim().length >= 2;
-  const deliveryValid = delivery === "pickup" || (!!cityName && !!branch);
-  const canSubmit = online && nameValid && phoneValid && deliveryValid;
+  const deliveryValid =
+    delivery === "pickup" || (!!npCity && !!npWarehouse);
+  const canSubmit =
+    online && !submitting && nameValid && phoneValid && deliveryValid;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setTouched(true);
     if (!canSubmit) return;
-    const deliveryLabel =
-      delivery === "pickup"
-        ? `Самовивіз — ${CLINIC_ADDRESS}`
-        : `Нова Пошта — ${cityName}, ${branch}`;
-    setPlaced({ items, subtotal, delivery, deliveryLabel });
-    clear();
-    setStep("done");
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const order = await createOrder({
+        items: items.map((i) => ({ productId: i.product.id, quantity: i.qty })),
+        deliveryMethod: delivery,
+        contactName: name.trim(),
+        contactPhone: phone.trim(),
+        npCity: delivery === "nova_poshta" ? npCity?.name : undefined,
+        npWarehouse: delivery === "nova_poshta" ? npWarehouse?.name : undefined,
+      });
+      const deliveryLabel =
+        delivery === "pickup"
+          ? `Самовивіз — ${CLINIC_ADDRESS}`
+          : `Нова Пошта — ${npCity?.name}, ${npWarehouse?.name}`;
+      // Use the SERVER total (authoritative), not the client subtotal.
+      setPlaced({ items, total: order.total, deliveryLabel });
+      clear();
+      setStep("done");
+    } catch (err) {
+      if (err instanceof ShopApiError && err.code === "out_of_stock") {
+        setSubmitError("Товару недостатньо в наявності. Оновіть кошик.");
+      } else if (err instanceof ShopApiError) {
+        setSubmitError(err.message);
+      } else {
+        setSubmitError("Не вдалося оформити замовлення. Спробуйте ще раз.");
+      }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const headerTitle =
@@ -195,12 +214,7 @@ export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
           {!online && step !== "done" && <OfflineNotice className="mb-4" />}
 
           {step === "cart" && (
-            <CartStep
-              items={items}
-              onInc={inc}
-              onDec={dec}
-              onRemove={remove}
-            />
+            <CartStep items={items} onInc={inc} onDec={dec} onRemove={remove} />
           )}
 
           {step === "checkout" && (
@@ -212,14 +226,13 @@ export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
                 onPhone={setPhone}
                 delivery={delivery}
                 onDelivery={setDelivery}
-                cityName={cityName}
-                onCity={(v) => {
-                  setCityName(v);
-                  setBranch(""); // branch depends on city
+                npCity={npCity}
+                npWarehouse={npWarehouse}
+                onCity={(c) => {
+                  setNpCity(c);
+                  setNpWarehouse(null); // warehouse depends on city
                 }}
-                branch={branch}
-                onBranch={setBranch}
-                branches={city.branches}
+                onWarehouse={setNpWarehouse}
                 touched={touched}
                 nameValid={nameValid}
                 phoneValid={phoneValid}
@@ -230,11 +243,18 @@ export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
                 items={items}
                 subtotal={subtotal}
                 deliveryLabel={
-                  delivery === "pickup"
-                    ? "Самовивіз із клініки"
-                    : "Нова Пошта"
+                  delivery === "pickup" ? "Самовивіз із клініки" : "Нова Пошта"
                 }
               />
+
+              {submitError && (
+                <div
+                  role="alert"
+                  className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700"
+                >
+                  {submitError}
+                </div>
+              )}
             </form>
           )}
 
@@ -282,15 +302,15 @@ export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
                 <button
                   type="submit"
                   form="checkout-form"
-                  disabled={!online}
+                  disabled={!online || submitting}
                   className={cn(
                     btnBase,
                     btnMint,
                     "w-full justify-center",
-                    !online && "cursor-not-allowed opacity-50",
+                    (!online || submitting) && "cursor-not-allowed opacity-50",
                   )}
                 >
-                  Оформити замовлення
+                  {submitting ? "Оформлення…" : "Оформити замовлення"}
                 </button>
                 <p className="mt-2 text-center text-xs text-navy-400">
                   {online
@@ -385,9 +405,7 @@ function CartStep({
                 </svg>
               </button>
             </div>
-            <p className="mt-0.5 text-xs text-navy-400">
-              {formatUAH(product.price)}
-            </p>
+            <p className="mt-0.5 text-xs text-navy-400">{formatUAH(product.price)}</p>
             <div className="mt-2 flex items-center justify-between">
               <QtyStepper
                 qty={qty}
@@ -459,11 +477,10 @@ function CheckoutFields({
   onPhone,
   delivery,
   onDelivery,
-  cityName,
+  npCity,
+  npWarehouse,
   onCity,
-  branch,
-  onBranch,
-  branches,
+  onWarehouse,
   touched,
   nameValid,
   phoneValid,
@@ -475,11 +492,10 @@ function CheckoutFields({
   onPhone: (v: string) => void;
   delivery: DeliveryMethod;
   onDelivery: (v: DeliveryMethod) => void;
-  cityName: string;
-  onCity: (v: string) => void;
-  branch: string;
-  onBranch: (v: string) => void;
-  branches: string[];
+  npCity: NpOption | null;
+  npWarehouse: NpOption | null;
+  onCity: (c: NpOption | null) => void;
+  onWarehouse: (w: NpOption | null) => void;
   touched: boolean;
   nameValid: boolean;
   phoneValid: boolean;
@@ -487,7 +503,6 @@ function CheckoutFields({
 }) {
   return (
     <div className="flex flex-col gap-4">
-      {/* Contact */}
       <fieldset className="flex flex-col gap-3">
         <legend className="mb-1 text-sm font-medium text-navy-900">
           Контактні дані
@@ -532,16 +547,11 @@ function CheckoutFields({
         </div>
       </fieldset>
 
-      {/* Delivery */}
       <fieldset>
         <legend className="mb-2 text-sm font-medium text-navy-900">
           Спосіб доставки
         </legend>
-        <div
-          role="group"
-          aria-label="Спосіб доставки"
-          className="grid grid-cols-2 gap-2"
-        >
+        <div role="group" aria-label="Спосіб доставки" className="grid grid-cols-2 gap-2">
           <DeliveryToggle
             active={delivery === "pickup"}
             onClick={() => onDelivery("pickup")}
@@ -549,8 +559,8 @@ function CheckoutFields({
             subtitle="з клініки"
           />
           <DeliveryToggle
-            active={delivery === "nova"}
-            onClick={() => onDelivery("nova")}
+            active={delivery === "nova_poshta"}
+            onClick={() => onDelivery("nova_poshta")}
             title="Нова Пошта"
             subtitle="у відділення"
           />
@@ -563,47 +573,13 @@ function CheckoutFields({
             {CLINIC_ADDRESS}
           </div>
         ) : (
-          <div className="mt-3 grid grid-cols-1 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="ck-city" className={fieldLabel}>
-                Місто
-              </label>
-              <select
-                id="ck-city"
-                value={cityName}
-                onChange={(e) => onCity(e.target.value)}
-                className={fieldInput}
-              >
-                {CITIES.map((c) => (
-                  <option key={c.name} value={c.name}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="ck-branch" className={fieldLabel}>
-                Відділення
-              </label>
-              <select
-                id="ck-branch"
-                value={branch}
-                onChange={(e) => onBranch(e.target.value)}
-                className={fieldInput}
-                aria-invalid={touched && !deliveryValid}
-              >
-                <option value="">Оберіть відділення…</option>
-                {branches.map((b) => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
-              </select>
-              {touched && !deliveryValid && (
-                <span className={fieldError}>Оберіть відділення</span>
-              )}
-            </div>
-          </div>
+          <NovaPoshtaPicker
+            city={npCity}
+            warehouse={npWarehouse}
+            onCity={onCity}
+            onWarehouse={onWarehouse}
+            invalid={touched && !deliveryValid}
+          />
         )}
       </fieldset>
     </div>
@@ -642,6 +618,200 @@ function DeliveryToggle({
   );
 }
 
+// ─── Nova Poshta city/warehouse autocomplete (server proxy) ──────────────────
+
+function NovaPoshtaPicker({
+  city,
+  warehouse,
+  onCity,
+  onWarehouse,
+  invalid,
+}: {
+  city: NpOption | null;
+  warehouse: NpOption | null;
+  onCity: (c: NpOption | null) => void;
+  onWarehouse: (w: NpOption | null) => void;
+  invalid: boolean;
+}) {
+  const [cityQuery, setCityQuery] = useState(city?.name ?? "");
+  const [cityOptions, setCityOptions] = useState<NpOption[]>([]);
+  const [cityOpen, setCityOpen] = useState(false);
+  const [warehouses, setWarehouses] = useState<NpOption[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [npError, setNpError] = useState<string | null>(null);
+
+  // Debounced city search (only while no city is committed yet). All setState
+  // happens inside the timer/promise callbacks — never synchronously in the
+  // effect body (avoids the set-state-in-effect cascade).
+  useEffect(() => {
+    const q = cityQuery.trim();
+    const ac = new AbortController();
+    const t = window.setTimeout(() => {
+      if (city || q.length < 2) {
+        setCityOptions([]);
+        return;
+      }
+      setLoading(true);
+      setNpError(null);
+      npCities(q, ac.signal)
+        .then((opts) => {
+          setCityOptions(opts);
+          setCityOpen(true);
+        })
+        .catch((err) => {
+          if (ac.signal.aborted) return;
+          setCityOptions([]);
+          setNpError(
+            err instanceof ShopApiError
+              ? err.message
+              : "Не вдалося завантажити міста",
+          );
+        })
+        .finally(() => setLoading(false));
+    }, 300);
+    return () => {
+      ac.abort();
+      window.clearTimeout(t);
+    };
+  }, [cityQuery, city]);
+
+  // Load warehouses when a city is committed. No synchronous setState in the
+  // effect body — loading flips in a microtask, results land in the promise.
+  // When there's no city we render [] (derived) without clearing state here.
+  useEffect(() => {
+    if (!city) return;
+    const ac = new AbortController();
+    let active = true;
+    queueMicrotask(() => {
+      if (active) {
+        setLoading(true);
+        setNpError(null);
+      }
+    });
+    npWarehouses(city.ref, "", ac.signal)
+      .then((opts) => {
+        if (active) setWarehouses(opts);
+      })
+      .catch((err) => {
+        if (!active || ac.signal.aborted) return;
+        setWarehouses([]);
+        setNpError(
+          err instanceof ShopApiError
+            ? err.message
+            : "Не вдалося завантажити відділення",
+        );
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+      ac.abort();
+    };
+  }, [city]);
+
+  // Derived: warehouses only belong to a committed city.
+  const warehouseOptions = city ? warehouses : [];
+
+  const pickCity = (c: NpOption) => {
+    onCity(c);
+    setCityQuery(c.name);
+    setCityOpen(false);
+  };
+
+  return (
+    <div className="mt-3 flex flex-col gap-3">
+      {/* City autocomplete */}
+      <div className="relative flex flex-col gap-1.5">
+        <label htmlFor="np-city" className={fieldLabel}>
+          Місто
+        </label>
+        <input
+          id="np-city"
+          type="text"
+          value={cityQuery}
+          autoComplete="off"
+          onChange={(e) => {
+            setCityQuery(e.target.value);
+            if (city) {
+              onCity(null); // editing the city resets the committed selection
+              onWarehouse(null);
+            }
+          }}
+          onFocus={() => cityOptions.length > 0 && setCityOpen(true)}
+          placeholder="Почніть вводити місто…"
+          className={fieldInput}
+          aria-invalid={invalid && !city}
+          aria-expanded={cityOpen}
+          role="combobox"
+          aria-controls="np-city-list"
+        />
+        {cityOpen && cityOptions.length > 0 && (
+          <ul
+            id="np-city-list"
+            role="listbox"
+            className="absolute top-full z-10 mt-1 max-h-52 w-full overflow-y-auto rounded-lg border border-[color:var(--line-2)] bg-white shadow-s2"
+          >
+            {cityOptions.map((c) => (
+              <li key={c.ref} role="option" aria-selected={false}>
+                <button
+                  type="button"
+                  onClick={() => pickCity(c)}
+                  className="block w-full px-3.5 py-2 text-left text-sm text-navy-900 hover:bg-cream focus:bg-cream focus:outline-none"
+                >
+                  {c.name}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Warehouse select (depends on the chosen city) */}
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="np-warehouse" className={fieldLabel}>
+          Відділення
+        </label>
+        <select
+          id="np-warehouse"
+          value={warehouse?.ref ?? ""}
+          disabled={!city || warehouseOptions.length === 0}
+          onChange={(e) => {
+            const w =
+              warehouseOptions.find((x) => x.ref === e.target.value) ?? null;
+            onWarehouse(w);
+          }}
+          className={cn(fieldInput, "disabled:opacity-60")}
+          aria-invalid={invalid && !warehouse}
+        >
+          <option value="">
+            {!city
+              ? "Спершу оберіть місто"
+              : warehouseOptions.length === 0
+                ? "Немає відділень"
+                : "Оберіть відділення…"}
+          </option>
+          {warehouseOptions.map((w) => (
+            <option key={w.ref} value={w.ref}>
+              {w.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {loading && <p className="text-xs text-navy-400">Завантаження…</p>}
+      {npError && (
+        <p className="text-xs text-red-500">
+          {npError}. Нова Пошта тимчасово недоступна — оберіть самовивіз.
+        </p>
+      )}
+      {invalid && !npError && (
+        <p className={fieldError}>Оберіть місто та відділення</p>
+      )}
+    </div>
+  );
+}
+
 // ─── Order summary ───────────────────────────────────────────────────────────
 
 function OrderSummary({
@@ -665,8 +835,7 @@ function OrderSummary({
             className="flex items-center justify-between gap-3 text-sm"
           >
             <span className="min-w-0 truncate text-navy-700">
-              {product.name}{" "}
-              <span className="text-navy-400">× {qty}</span>
+              {product.name} <span className="text-navy-400">× {qty}</span>
             </span>
             <span className="shrink-0 tabular-nums text-navy-900">
               {formatUAH(product.price * qty)}
@@ -720,8 +889,7 @@ function DoneStep({ order }: { order: PlacedOrder }) {
         Замовлення <em className="italic text-mint-600">прийнято</em>!
       </h3>
       <p className="mt-2 max-w-[34ch] text-sm text-navy-400">
-        Ми зв’яжемося з вами для підтвердження. Це демо — реальне замовлення не
-        створено.
+        Ми зв’яжемося з вами для підтвердження.
       </p>
 
       <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-cream px-3 py-1.5 text-xs font-medium text-navy-900">
@@ -747,7 +915,7 @@ function DoneStep({ order }: { order: PlacedOrder }) {
         <div className="mt-3 flex items-center justify-between text-sm">
           <span className="text-navy-400">Разом</span>
           <span className="text-lg font-medium tabular-nums text-navy-900">
-            {formatUAH(order.subtotal)}
+            {formatUAH(order.total)}
           </span>
         </div>
         <p className="mt-2 text-xs text-navy-400">{order.deliveryLabel}</p>

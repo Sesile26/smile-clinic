@@ -67,6 +67,23 @@ export interface LocalSlot {
   lastMirroredAt: number;
 }
 
+/**
+ * Read-only mirror of a catalog product, for OFFLINE VIEWING only. The catalog
+ * is public (not user-scoped), so useProducts writes this on every online load
+ * and reads it back when offline. Ordering stays online-only.
+ */
+export interface LocalProduct {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  imageUrl: string | null;
+  category: string | null;
+  stock: number;
+  isActive: boolean;
+  lastMirroredAt: number;
+}
+
 export interface LocalProfile {
   /** Always the literal "me" — singleton row for the current session. */
   userId: string;
@@ -86,6 +103,7 @@ export class ClinicDatabase extends Dexie {
   patients!: Table<LocalPatient, string>;
   doctors!: Table<LocalDoctor, string>;
   slots!: Table<LocalSlot, string>;
+  products!: Table<LocalProduct, string>;
   profile!: Table<LocalProfile, string>;
 
   constructor() {
@@ -122,6 +140,17 @@ export class ClinicDatabase extends Dexie {
       patients: "id, name",
       doctors: "id",
       slots: "id, doctorId, status, startsAt",
+      profile: "userId",
+    });
+
+    // v4: adds the `products` table for the offline shop catalog. Additive;
+    // fills on the next online catalog load (useProducts), read back offline.
+    this.version(4).stores({
+      appointments: "id, date, status, doctorId, patientId",
+      patients: "id, name",
+      doctors: "id",
+      slots: "id, doctorId, status, startsAt",
+      products: "id, isActive, category",
       profile: "userId",
     });
   }

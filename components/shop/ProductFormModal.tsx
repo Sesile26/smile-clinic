@@ -4,23 +4,28 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { btnBase, btnGhost, btnMint } from "@/lib/buttons";
 import { IcoClose } from "@/components/icons";
-import { CATEGORIES, type Category, type Product } from "./data";
+import type { ApiProduct } from "@/lib/shop-types";
+import { CATEGORIES } from "./data";
 
-/** Payload the parent turns into a Product (id is assigned by the parent). */
+/** Payload the parent sends to the API (id is server-assigned on create). */
 export interface ProductFormValues {
   name: string;
   description: string;
   price: number;
   stock: number;
-  category: Category;
+  category: string;
   imageUrl?: string;
 }
 
 interface ProductFormModalProps {
   /** null → "add" mode; a product → "edit" mode (prefilled). */
-  initial: Product | null;
+  initial: ApiProduct | null;
   onSave: (values: ProductFormValues) => void;
   onClose: () => void;
+  /** Submit in flight — disables actions. */
+  submitting?: boolean;
+  /** Server error from the last save attempt. */
+  error?: string | null;
 }
 
 const FOCUSABLE =
@@ -44,6 +49,8 @@ export function ProductFormModal({
   initial,
   onSave,
   onClose,
+  submitting = false,
+  error = null,
 }: ProductFormModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -51,7 +58,7 @@ export function ProductFormModal({
   const [description, setDescription] = useState(initial?.description ?? "");
   const [price, setPrice] = useState(initial ? String(initial.price) : "");
   const [stock, setStock] = useState(initial ? String(initial.stock) : "");
-  const [category, setCategory] = useState<Category>(
+  const [category, setCategory] = useState<string>(
     initial?.category ?? CATEGORIES[0],
   );
   const [imageUrl, setImageUrl] = useState(initial?.imageUrl ?? "");
@@ -241,7 +248,7 @@ export function ProductFormModal({
             <select
               id="pf-category"
               value={category}
-              onChange={(e) => setCategory(e.target.value as Category)}
+              onChange={(e) => setCategory(e.target.value)}
               className={fieldInput}
             >
               {CATEGORIES.map((c) => (
@@ -269,16 +276,36 @@ export function ProductFormModal({
             </span>
           </div>
 
+          {error && (
+            <div
+              role="alert"
+              className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700"
+            >
+              {error}
+            </div>
+          )}
+
           <div className="mt-1 flex flex-col gap-2.5 sm:flex-row-reverse">
             <button
               type="submit"
-              className={cn(btnBase, btnMint, "flex-1 justify-center")}
+              disabled={submitting}
+              className={cn(
+                btnBase,
+                btnMint,
+                "flex-1 justify-center",
+                submitting && "opacity-70",
+              )}
             >
-              {initial ? "Зберегти зміни" : "Додати товар"}
+              {submitting
+                ? "Збереження…"
+                : initial
+                  ? "Зберегти зміни"
+                  : "Додати товар"}
             </button>
             <button
               type="button"
               onClick={onClose}
+              disabled={submitting}
               className={cn(btnBase, btnGhost, "flex-1 justify-center")}
             >
               Скасувати

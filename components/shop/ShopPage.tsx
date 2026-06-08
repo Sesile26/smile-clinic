@@ -5,18 +5,17 @@ import { cn } from "@/lib/cn";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { displayM } from "@/lib/typography";
 import { Container } from "@/components/ui/Container";
+import { useProducts, useShopRole, isShopManager } from "@/hooks/useShop";
 import {
-  CATEGORIES,
-  PRODUCTS,
-  type Category,
-  type DemoState,
-  type Product,
-  type ShopRole,
-} from "./data";
+  createProduct,
+  deleteProduct,
+  updateProduct,
+  ShopApiError,
+} from "@/lib/shop-client";
+import type { ApiProduct } from "@/lib/shop-types";
 import { CartProvider, useCart } from "./CartContext";
 import { ProductCard } from "./ProductCard";
 import { CartDrawer } from "./CartDrawer";
-import { DemoControls } from "./DemoControls";
 import { ProductFormModal, type ProductFormValues } from "./ProductFormModal";
 import {
   EmptyState,
@@ -34,26 +33,29 @@ export function ShopPage() {
 }
 
 function ShopInner() {
-  const { isOnline } = useOnlineStatus();
+  const { isOnline: online } = useOnlineStatus();
   const { add, items, count } = useCart();
+  const { role } = useShopRole();
+  const canManage = isShopManager(role); // STAFF/ADMIN, from the session
 
-  // Role is emulated by a local toggle for now — real roles (session) come with
-  // integration. Buyers never see the manage UI.
-  const [role, setRole] = useState<ShopRole>("buyer");
-  const isAdmin = role === "admin";
+  const { products, state, reload, source } = useProducts(online);
 
-  const [demoState, setDemoState] = useState<DemoState>("ready");
-  const [forceOffline, setForceOffline] = useState(false);
-  const [category, setCategory] = useState<Category | "all">("all");
+  const [category, setCategory] = useState<string>("all");
   const [cartOpen, setCartOpen] = useState(false);
 
-  // Catalog lives in local state so admin add/edit/delete is reflected
-  // immediately. MOCK ONLY — persisting to the DB is wired during integration.
-  const [products, setProducts] = useState<Product[]>(PRODUCTS);
+  // Admin form + delete state (API-backed; reload() refetches after a change).
   const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<Product | null>(null);
+  const [editing, setEditing] = useState<ApiProduct | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const online = isOnline && !forceOffline;
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of products) if (p.category) set.add(p.category);
+    return [...set].sort((a, b) => a.localeCompare(b, "uk"));
+  }, [products]);
 
   const filtered = useMemo(
     () =>
@@ -63,33 +65,58 @@ function ShopInner() {
     [products, category],
   );
 
-  // product id → qty in cart (for the card's "У кошику · N").
   const qtyById = useMemo(() => {
     const m = new Map<string, number>();
     for (const i of items) m.set(i.product.id, i.qty);
     return m;
   }, [items]);
 
-  // ── Admin CRUD (local mock) ────────────────────────────────────────────────
+  // ── Admin CRUD via the API ──────────────────────────────────────────────
   const openAdd = () => {
     setEditing(null);
+    setSaveError(null);
     setFormOpen(true);
   };
-  const openEdit = (p: Product) => {
+  const openEdit = (p: ApiProduct) => {
     setEditing(p);
+    setSaveError(null);
     setFormOpen(true);
   };
-  const handleSave = (values: ProductFormValues) => {
-    setProducts((prev) =>
-      editing
-        ? prev.map((p) => (p.id === editing.id ? { ...p, ...values } : p))
-        : [{ id: `p-${crypto.randomUUID().slice(0, 8)}`, ...values }, ...prev],
-    );
-    setFormOpen(false);
-    setEditing(null);
+  const handleSave = async (values: ProductFormValues) => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      if (editing) await updateProduct(editing.id, values);
+      else await createProduct(values);
+      setFormOpen(false);
+      setEditing(null);
+      reload();
+    } catch (err) {
+      setSaveError(
+        err instanceof ShopApiError
+          ? err.message
+          : "Не вдалося зберегти товар.",
+      );
+    } finally {
+      setSaving(false);
+    }
   };
-  const handleDelete = (id: string) =>
-    setProducts((prev) => prev.filter((p) => p.id !== id));
+  const handleDelete = async (id: string) => {
+    setBusyId(id);
+    setActionError(null);
+    try {
+      await deleteProduct(id);
+      reload();
+    } catch (err) {
+      setActionError(
+        err instanceof ShopApiError
+          ? err.message
+          : "Не вдалося видалити товар.",
+      );
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   return (
     <Container className="py-10 sm:py-14">
@@ -103,54 +130,52 @@ function ShopInner() {
             Магазин <em className="italic text-mint-600">клініки</em>
           </h1>
           <p className="mt-2 max-w-[52ch] text-[15px] leading-[1.55] text-navy-400">
-            {isAdmin
-              ? "Режим керування: додавайте, редагуйте та видаляйте товари. Зміни наразі лише локальні."
+            {canManage
+              ? "Режим персоналу: керуйте товарами. Покупці бачать лише активні позиції."
               : "Засоби догляду, які ми рекомендуємо пацієнтам. Оплата при отриманні — самовивіз або Нова Пошта."}
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          <RoleToggle role={role} onChange={setRole} />
-          <button
-            type="button"
-            onClick={() => setCartOpen(true)}
-            className="relative inline-flex shrink-0 items-center gap-2 rounded-full border border-[color:var(--line-2)] bg-white px-4 py-2.5 text-sm font-medium text-navy-900 transition-colors hover:border-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint"
-            aria-label={`Відкрити кошик, товарів: ${count}`}
+        <button
+          type="button"
+          onClick={() => setCartOpen(true)}
+          className="relative inline-flex shrink-0 items-center gap-2 self-start rounded-full border border-[color:var(--line-2)] bg-white px-4 py-2.5 text-sm font-medium text-navy-900 transition-colors hover:border-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint lg:self-auto"
+          aria-label={`Відкрити кошик, товарів: ${count}`}
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
           >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <circle cx="9" cy="21" r="1" />
-              <circle cx="20" cy="21" r="1" />
-              <path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6" />
-            </svg>
-            Кошик
-            {count > 0 && (
-              <span className="grid h-5 min-w-5 place-items-center rounded-full bg-mint px-1 text-xs font-semibold tabular-nums text-navy-900">
-                {count}
-              </span>
-            )}
-          </button>
-        </div>
+            <circle cx="9" cy="21" r="1" />
+            <circle cx="20" cy="21" r="1" />
+            <path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6" />
+          </svg>
+          Кошик
+          {count > 0 && (
+            <span className="grid h-5 min-w-5 place-items-center rounded-full bg-mint px-1 text-xs font-semibold tabular-nums text-navy-900">
+              {count}
+            </span>
+          )}
+        </button>
       </div>
 
-      <DemoControls
-        demoState={demoState}
-        onDemoState={setDemoState}
-        forceOffline={forceOffline}
-        onForceOffline={setForceOffline}
-        online={isOnline}
-      />
+      {!online && <OfflineNotice className="mb-5" />}
 
-      {!online && demoState === "ready" && <OfflineNotice className="mb-5" />}
+      {actionError && (
+        <div
+          role="alert"
+          className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700"
+        >
+          {actionError}
+        </div>
+      )}
 
       {/* Toolbar: category filter + (admin) add button */}
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -159,7 +184,7 @@ function ShopInner() {
           aria-label="Фільтр за категорією"
           className="flex flex-wrap gap-2"
         >
-          {(["all", ...CATEGORIES] as const).map((c) => {
+          {["all", ...categories].map((c) => {
             const active = category === c;
             return (
               <button
@@ -180,11 +205,13 @@ function ShopInner() {
           })}
         </div>
 
-        {isAdmin && (
+        {canManage && (
           <button
             type="button"
             onClick={openAdd}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-navy-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-black focus:outline-none focus-visible:ring-2 focus-visible:ring-mint focus-visible:ring-offset-1"
+            disabled={!online}
+            title={!online ? "Керування доступне лише онлайн" : undefined}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-navy-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-black focus:outline-none focus-visible:ring-2 focus-visible:ring-mint focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
             Додати товар
@@ -193,17 +220,17 @@ function ShopInner() {
       </div>
 
       {/* Catalog */}
-      {demoState === "loading" ? (
+      {state === "loading" ? (
         <SkeletonGrid />
-      ) : demoState === "error" ? (
-        <ErrorBanner onRetry={() => setDemoState("ready")} />
-      ) : demoState === "empty" || filtered.length === 0 ? (
+      ) : state === "error" ? (
+        <ErrorBanner onRetry={reload} />
+      ) : filtered.length === 0 ? (
         <EmptyState
           title="Немає товарів"
           hint={
-            isAdmin
+            canManage
               ? "Додайте перший товар кнопкою «Додати товар»."
-              : "У цій категорії поки порожньо. Спробуйте іншу категорію."
+              : "Каталог поки порожній. Завітайте трохи згодом."
           }
         />
       ) : (
@@ -215,7 +242,8 @@ function ShopInner() {
               disabled={!online}
               inCartQty={qtyById.get(p.id) ?? 0}
               onAdd={() => add(p)}
-              role={role}
+              canManage={canManage && online}
+              busy={busyId === p.id}
               onEdit={() => openEdit(p)}
               onDelete={() => handleDelete(p.id)}
             />
@@ -223,63 +251,30 @@ function ShopInner() {
         </div>
       )}
 
-      <CartDrawer
-        open={cartOpen}
-        onClose={() => setCartOpen(false)}
-        online={online}
-      />
+      {source === "mirror" && filtered.length > 0 && (
+        <p className="mt-4 text-xs text-navy-400">
+          Показано збережений каталог (офлайн). Оформлення доступне лише онлайн.
+        </p>
+      )}
 
-      {/* Admin-only product form (add/edit). Mock — see handleSave.
-          Mounted only while open and keyed by product id so the form prefills
-          from its lazy initial state (no prop→state effect). */}
-      {isAdmin && formOpen && (
+      <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} online={online} />
+
+      {/* Admin-only product form. Mounted only while open, keyed by id so the
+          form prefills from its lazy initial state (no prop→state effect). */}
+      {canManage && formOpen && (
         <ProductFormModal
           key={editing?.id ?? "new"}
           initial={editing}
+          submitting={saving}
+          error={saveError}
           onSave={handleSave}
           onClose={() => {
+            if (saving) return;
             setFormOpen(false);
             setEditing(null);
           }}
         />
       )}
     </Container>
-  );
-}
-
-function RoleToggle({
-  role,
-  onChange,
-}: {
-  role: ShopRole;
-  onChange: (r: ShopRole) => void;
-}) {
-  const options: { value: ShopRole; label: string }[] = [
-    { value: "buyer", label: "Я покупець" },
-    { value: "admin", label: "Я admin-staff" },
-  ];
-  return (
-    <div
-      role="group"
-      aria-label="Режим перегляду"
-      className="inline-flex shrink-0 rounded-full bg-cream p-1"
-    >
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          aria-pressed={role === o.value}
-          onClick={() => onChange(o.value)}
-          className={cn(
-            "rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-mint",
-            role === o.value
-              ? "bg-navy-900 text-white"
-              : "text-navy-400 hover:text-navy-900",
-          )}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
   );
 }

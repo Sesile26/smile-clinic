@@ -8,10 +8,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { Product } from "./data";
+import type { ApiProduct } from "@/lib/shop-types";
 
 export interface CartItem {
-  product: Product;
+  product: ApiProduct;
   qty: number;
 }
 
@@ -19,7 +19,7 @@ interface CartContextValue {
   items: CartItem[];
   count: number; // total units
   subtotal: number; // UAH
-  add: (product: Product) => void;
+  add: (product: ApiProduct) => void;
   setQty: (id: string, qty: number) => void;
   inc: (id: string) => void;
   dec: (id: string) => void;
@@ -44,7 +44,7 @@ const MAX_QTY = 99;
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
 
-  const add = useCallback((product: Product) => {
+  const add = useCallback((product: ApiProduct) => {
     setItems((prev) => {
       const existing = prev.find((i) => i.product.id === product.id);
       if (existing) {

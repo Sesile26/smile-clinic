@@ -32,7 +32,7 @@ const runtimeCaching: RuntimeCaching[] = [
   // the SW.
   {
     urlPattern:
-      /^\/api\/(appointments|patients|doctors|mirror|slots|bookings)(\/.*)?$/i,
+      /^\/api\/(appointments|patients|doctors|mirror|slots|bookings|products|orders|nova-poshta)(\/.*)?$/i,
     handler: "NetworkOnly",
   },
   // ─── DENY: RSC payloads ──────────────────────────────────────────────────
