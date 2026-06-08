@@ -8,6 +8,7 @@ import { cn } from "@/lib/cn";
 import { wipeDexie } from "@/lib/db";
 import { btnBase, btnMint } from "@/lib/buttons";
 import { useLoginModal } from "@/components/ui/LoginModalProvider";
+import { NotificationsBell } from "@/components/notifications/NotificationsBell";
 import { IcoArrow, IcoMenu, IcoTooth } from "@/components/icons";
 
 // Section anchors on the home page. Always prefixed with "/" so a click from
@@ -285,7 +286,10 @@ export function Header() {
               className="h-10 w-10 animate-pulse rounded-full bg-cream"
             />
           ) : status === "authenticated" && session?.user ? (
-            <AvatarMenu user={session.user} role={session.user.role} />
+            <>
+              <NotificationsBell />
+              <AvatarMenu user={session.user} role={session.user.role} />
+            </>
           ) : (
             <button
               type="button"
