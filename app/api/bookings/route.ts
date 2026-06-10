@@ -7,23 +7,40 @@ import {
 import { prisma } from "@/lib/prisma";
 import { apiError, getActor, isStaff } from "@/lib/booking-server";
 import { createNotification } from "@/lib/notifications";
+import { rateLimit } from "@/lib/rate-limit";
 
 /**
  * Bookings.
  *
- *  POST   { slotId }        → book a free slot (atomic, race-safe).
+ *  POST   { slotId }        → book a free slot. Creates a PENDING appointment
+ *                             and atomically claims the slot (booked) so nobody
+ *                             else can take the time while it's under review.
  *  DELETE { appointmentId } → cancel; frees the slot back to `free`.
  *
  * Booking is ONLINE-ONLY (no offline queue) to avoid double-booking. The
  * race is closed by a conditional updateMany inside the transaction, NOT by a
  * read-then-write.
+ *
+ * SPAM GUARDS (env-overridable):
+ *  - MAX_ACTIVE_APPOINTMENTS: cap on simultaneous active (pending/confirmed,
+ *    future) appointments per patient — counted INSIDE the booking transaction.
+ *  - rate limiting: in-memory per-user (+ looser per-IP) attempt cap (see
+ *    lib/rate-limit; per-process only).
  */
+
+const MAX_ACTIVE_APPOINTMENTS = Number(
+  process.env.MAX_ACTIVE_APPOINTMENTS ?? 4,
+);
+const BOOKING_RATE_LIMIT = Number(process.env.BOOKING_RATE_LIMIT ?? 5);
+const BOOKING_RATE_WINDOW_MS = Number(
+  process.env.BOOKING_RATE_WINDOW_MS ?? 60_000,
+);
 
 /** Thrown inside the transaction to map to a clean HTTP response. */
 class BookingError extends Error {
   constructor(
     public httpStatus: number,
-    public code: "not_found" | "slot_taken" | "validation" | "past",
+    public code: "not_found" | "slot_taken" | "validation" | "past" | "limit",
     message: string,
   ) {
     super(message);
@@ -45,6 +62,31 @@ export async function POST(request: Request) {
 
   const { slotId } = (body ?? {}) as { slotId?: string };
   if (!slotId) return apiError(400, "validation", "slotId є обовʼязковим");
+
+  // Rate limit booking attempts: per-user (primary) + looser per-IP. In-memory,
+  // per-process (see lib/rate-limit) — swap for Redis to scale.
+  const ip =
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const userRl = rateLimit(
+    `booking:user:${actor.userId}`,
+    BOOKING_RATE_LIMIT,
+    BOOKING_RATE_WINDOW_MS,
+  );
+  const ipRl = rateLimit(
+    `booking:ip:${ip}`,
+    BOOKING_RATE_LIMIT * 4,
+    BOOKING_RATE_WINDOW_MS,
+  );
+  if (!userRl.ok || !ipRl.ok) {
+    const retry = Math.max(userRl.retryAfterSec, ipRl.retryAfterSec);
+    return NextResponse.json(
+      {
+        error: "Забагато спроб бронювання. Спробуйте трохи згодом.",
+        code: "rate_limited",
+      },
+      { status: 429, headers: { "Retry-After": String(retry) } },
+    );
+  }
 
   try {
     // Single "now" reused by the read-side guard and the atomic claim below,
@@ -102,11 +144,34 @@ export async function POST(request: Request) {
         throw new BookingError(409, "past", "Цей час уже минув");
       }
 
-      // 3) Create the appointment (confirmed) in the SAME transaction.
+      // 2b) Anti-spam: cap simultaneous ACTIVE (pending/confirmed, future)
+      //     appointments. Counted INSIDE the transaction so parallel requests
+      //     can't both slip past the limit (ReadCommitted leaves a tiny window
+      //     of +1 under heavy concurrency — acceptable; the rate limiter and
+      //     1-slot-1-booking guard cover the rest).
+      const activeCount = await tx.appointment.count({
+        where: {
+          patientId,
+          status: {
+            in: [AppointmentStatus.pending, AppointmentStatus.confirmed],
+          },
+          date: { gte: now },
+        },
+      });
+      if (activeCount >= MAX_ACTIVE_APPOINTMENTS) {
+        throw new BookingError(
+          409,
+          "limit",
+          "Досягнуто ліміт активних записів. Дочекайтесь прийому або скасуйте наявний.",
+        );
+      }
+
+      // 3) Create the appointment as PENDING (awaiting doctor/staff confirm)
+      //    in the SAME transaction.
       const appointment = await tx.appointment.create({
         data: {
           date: slot.startsAt,
-          status: AppointmentStatus.confirmed,
+          status: AppointmentStatus.pending,
           patientId,
           doctorId: slot.doctorId,
         },

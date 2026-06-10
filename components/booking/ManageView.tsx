@@ -34,6 +34,7 @@ import {
   type ViewMode,
 } from "./data";
 import { CalendarToolbar } from "./CalendarToolbar";
+import { PendingAppointments } from "./PendingAppointments";
 import { WeekCalendar } from "./WeekCalendar";
 import { MonthCalendar } from "./MonthCalendar";
 import { Select } from "./Select";
@@ -214,6 +215,13 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
         )}
         <Legend />
       </div>
+
+      {/* Pending appointments awaiting this doctor's confirm/reject. */}
+      <PendingAppointments
+        doctorId={activeDoctorId}
+        online={online}
+        onChange={reload}
+      />
 
       {!online && (
         <OfflineNotice

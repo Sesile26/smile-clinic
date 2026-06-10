@@ -141,7 +141,7 @@ export function ConfirmModal({
               id="confirmTitle"
               className="mb-2 font-serif text-[26px] leading-tight tracking-[-0.015em] text-navy-900"
             >
-              Успішно <em className="italic text-mint-600">заброньовано</em>!
+              Заявку <em className="italic text-mint-600">надіслано</em>!
             </h3>
             <p className="mx-auto mb-6 max-w-[34ch] text-sm text-navy-400">
               {doctor && date && time ? (
@@ -150,10 +150,10 @@ export function ConfirmModal({
                   <span className="font-medium text-navy-900">
                     {formatDayLong(date)} о {time}
                   </span>
-                  . Запис підтверджено.
+                  . Очікує підтвердження лікаря.
                 </>
               ) : (
-                "Ваш запис підтверджено."
+                "Запис очікує підтвердження лікаря."
               )}
             </p>
             <button

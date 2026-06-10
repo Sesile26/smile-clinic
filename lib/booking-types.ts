@@ -32,6 +32,8 @@ export type ApiErrorCode =
   | "overlap" // new slot overlaps an existing one
   | "duplicate" // a slot already exists at that exact start
   | "past" // slot start is in the past
+  | "limit" // too many active appointments
+  | "rate_limited" // too many booking attempts in a short window
   | "server";
 
 export interface ApiError {
