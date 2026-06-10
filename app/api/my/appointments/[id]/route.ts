@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { AppointmentStatus, SlotStatus } from "@/lib/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import { apiError, getActor } from "@/lib/booking-server";
-import { createNotification } from "@/lib/notifications";
+import {
+  createNotification,
+  notifyManagersOfCancellation,
+} from "@/lib/notifications";
 import type { MyAppointment } from "@/lib/my-appointments";
 
 /**
@@ -81,11 +84,13 @@ export async function PATCH(
         id: true,
         date: true,
         status: true,
+        doctorId: true,
         doctor: { select: { name: true, specialty: true } },
+        patient: { select: { name: true } },
       },
     });
-    // Notify the patient about their appointment status change. Best-effort —
-    // a notification failure must not fail the cancel itself.
+    // Notify the patient about their own cancellation. Best-effort — a
+    // notification failure must not fail the cancel itself.
     try {
       await createNotification({
         userId: actor.userId,
@@ -95,7 +100,19 @@ export async function PATCH(
         link: "/my/appointments",
       });
     } catch (e) {
-      console.error("notify (appointment cancel) failed", e);
+      console.error("notify (patient cancel) failed", e);
+    }
+    // Notify the managers of the freed slot (owner doctor + staff/admin),
+    // deduped; today's cancellations flagged urgent. Best-effort.
+    try {
+      await notifyManagersOfCancellation({
+        doctorId: updated.doctorId,
+        doctorName: updated.doctor.name,
+        patientName: updated.patient.name,
+        date: updated.date,
+      });
+    } catch (e) {
+      console.error("notify managers (cancel) failed", e);
     }
 
     return NextResponse.json<MyAppointment>({

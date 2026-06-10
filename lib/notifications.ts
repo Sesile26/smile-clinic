@@ -98,3 +98,79 @@ export async function notifyStaff(
     staff.map((u) => createNotification({ ...input, userId: u.id })),
   );
 }
+
+/** Clinic timezone — used so "today" is computed at the clinic's wall-clock,
+ *  not the server's UTC, avoiding day-boundary mistakes. */
+const CLINIC_TZ = "Europe/Kyiv";
+const dayKeyFmt = new Intl.DateTimeFormat("en-CA", {
+  timeZone: CLINIC_TZ,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+const timeFmt = new Intl.DateTimeFormat("uk-UA", {
+  timeZone: CLINIC_TZ,
+  hour: "2-digit",
+  minute: "2-digit",
+});
+const dateFmt = new Intl.DateTimeFormat("uk-UA", {
+  timeZone: CLINIC_TZ,
+  day: "numeric",
+  month: "long",
+});
+
+/**
+ * Tell the people who manage a freed slot that a patient cancelled: the slot's
+ * owning DOCTOR (if their account is linked via Doctor.userId) AND every
+ * STAFF/ADMIN. Recipients are DEDUPED (a Set of userIds) so nobody gets two
+ * copies. Today's cancellations are flagged as urgent (the window just opened
+ * up for today); "today" is computed in the clinic timezone.
+ *
+ * Call AFTER the cancel transaction commits.
+ */
+export async function notifyManagersOfCancellation(input: {
+  doctorId: string;
+  doctorName: string;
+  patientName: string;
+  date: Date;
+}): Promise<void> {
+  const [doctor, staff] = await Promise.all([
+    prisma.doctor.findUnique({
+      where: { id: input.doctorId },
+      select: { userId: true },
+    }),
+    prisma.user.findMany({
+      where: { role: { in: [Role.STAFF, Role.ADMIN] } },
+      select: { id: true },
+    }),
+  ]);
+
+  const recipients = new Set<string>();
+  if (doctor?.userId) recipients.add(doctor.userId); // owner doctor, if linked
+  for (const u of staff) recipients.add(u.id); // staff/admin
+  if (recipients.size === 0) return;
+
+  const isToday = dayKeyFmt.format(input.date) === dayKeyFmt.format(new Date());
+  const when = isToday
+    ? `сьогодні, ${timeFmt.format(input.date)}`
+    : `${dateFmt.format(input.date)}, ${timeFmt.format(input.date)}`;
+
+  // Type stays "appointment_status" (no new enum); urgency is signalled in the
+  // title so the doctor sees today's freed window at a glance.
+  const title = isToday
+    ? "Термінове: скасування на сьогодні"
+    : "Пацієнт скасував запис";
+  const body = `Пацієнт ${input.patientName} скасував запис на ${when}. Лікар: ${input.doctorName}.`;
+
+  await Promise.all(
+    [...recipients].map((userId) =>
+      createNotification({
+        userId,
+        type: "appointment_status",
+        title,
+        body,
+        link: "/booking",
+      }),
+    ),
+  );
+}
