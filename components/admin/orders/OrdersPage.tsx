@@ -1,6 +1,7 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/cn";
 import { displayM } from "@/lib/typography";
 import { Container } from "@/components/ui/Container";
@@ -8,7 +9,10 @@ import { formatUAH } from "@/components/shop/data";
 import {
   getAdminOrders,
   updateOrderStatus,
+  ORDERS_DEFAULT_PAGE_SIZE,
+  ORDERS_PAGE_SIZES,
   type AdminOrder,
+  type AdminOrdersQuery,
   type AdminOrderStatus,
 } from "@/lib/admin-orders";
 import { ShopApiError } from "@/lib/shop-client";
@@ -20,58 +24,153 @@ import {
 } from "./data";
 import { EmptyState, ErrorBanner, SkeletonList } from "./StatePanels";
 
-type LoadState = "loading" | "ready" | "error";
+/** Search debounce — keeps typing from hammering the API per keystroke. */
+const SEARCH_DEBOUNCE_MS = 400;
 
+/**
+ * Orders are paginated ON THE SERVER (offset, 25/50/100 per page) with classic
+ * numbered pages. page/pageSize live in the URL (?page=2&pageSize=50), so
+ * refresh, browser Back and link sharing all restore the exact view. Filters
+ * (status, search, date range) are server-side query params and any filter
+ * change resets to page 1.
+ */
 export function OrdersPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // ── URL is the source of truth for pagination ─────────────────────────────
+  const rawPage = Number(searchParams.get("page"));
+  const page = Number.isInteger(rawPage) && rawPage >= 1 ? rawPage : 1;
+  const rawSize = Number(searchParams.get("pageSize"));
+  const pageSize = (ORDERS_PAGE_SIZES as readonly number[]).includes(rawSize)
+    ? rawSize
+    : ORDERS_DEFAULT_PAGE_SIZE;
+
+  /** Defaults are omitted so plain /admin/orders stays clean. */
+  const hrefFor = (p: number, size: number) => {
+    const qp = new URLSearchParams();
+    if (p > 1) qp.set("page", String(p));
+    if (size !== ORDERS_DEFAULT_PAGE_SIZE) qp.set("pageSize", String(size));
+    const qs = qp.toString();
+    return `${pathname}${qs ? `?${qs}` : ""}`;
+  };
+  const goToPage = (p: number) => router.push(hrefFor(p, pageSize));
+  const changePageSize = (size: number) => router.push(hrefFor(1, size));
+  /** Filter changes land on page 1 without polluting browser history. */
+  const resetToFirstPage = () => {
+    if (page !== 1) router.replace(hrefFor(1, pageSize));
+  };
+
+  // ── Data + filters ─────────────────────────────────────────────────────────
   const [orders, setOrders] = useState<AdminOrder[]>([]);
-  const [state, setState] = useState<LoadState>("loading");
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [reloadKey, setReloadKey] = useState(0);
 
   const [statusFilter, setStatusFilter] = useState<AdminOrderStatus | "all">("all");
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // Fetch the order list. No synchronous setState in the effect body (avoids the
-  // set-state-in-effect cascade); updates land in the async callbacks.
+  const filters: AdminOrdersQuery = {
+    status: statusFilter === "all" ? null : statusFilter,
+    q: debouncedQuery,
+    from: dateFrom || null,
+    to: dateTo || null,
+  };
+  // One key per (filters, page, pageSize, reload) combination. Loading state
+  // is DERIVED (loadedKey !== requestKey), so back/forward navigation shows
+  // the skeleton too and no effect ever calls setState synchronously.
+  const requestKey = JSON.stringify({ f: filters, page, pageSize, r: reloadKey });
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  const [errorKey, setErrorKey] = useState<string | null>(null);
+
   useEffect(() => {
     const ac = new AbortController();
-    getAdminOrders(ac.signal)
+    const req = JSON.parse(requestKey) as {
+      f: AdminOrdersQuery;
+      page: number;
+      pageSize: number;
+    };
+    getAdminOrders({ ...req.f, page: req.page, pageSize: req.pageSize }, ac.signal)
       .then((data) => {
-        setOrders(data);
-        setState("ready");
+        // Jumped past the end (stale link / shrunken filter)? Land on the
+        // last real page instead of an empty one.
+        if (data.total > 0 && req.page > data.totalPages) {
+          const qp = new URLSearchParams();
+          if (data.totalPages > 1) qp.set("page", String(data.totalPages));
+          if (req.pageSize !== ORDERS_DEFAULT_PAGE_SIZE) {
+            qp.set("pageSize", String(req.pageSize));
+          }
+          const qs = qp.toString();
+          router.replace(`${pathname}${qs ? `?${qs}` : ""}`);
+          return;
+        }
+        setOrders(data.items);
+        setTotal(data.total);
+        setTotalPages(data.totalPages);
+        setLoadedKey(requestKey);
       })
       .catch((err) => {
         if (ac.signal.aborted || err?.name === "AbortError") return;
-        setState("error");
+        setErrorKey(requestKey);
       });
     return () => ac.abort();
-  }, [reloadKey]);
+  }, [requestKey, router, pathname]);
 
+  const isError = errorKey === requestKey;
+  const isLoading = !isError && loadedKey !== requestKey;
   const reload = () => {
-    setState("loading");
+    setErrorKey(null);
     setReloadKey((k) => k + 1);
   };
 
-  const digits = (s: string) => s.replace(/\D/g, "");
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const qDigits = digits(query);
-    const list = orders.filter((o) => {
-      if (statusFilter !== "all" && o.status !== statusFilter) return false;
-      if (!q) return true;
-      const byName = o.contactName.toLowerCase().includes(q);
-      const byPhone = qDigits.length > 0 && digits(o.contactPhone).includes(qDigits);
-      const byNumber = o.number.toLowerCase().includes(q);
-      return byName || byPhone || byNumber;
-    });
-    // Newest first (server already orders desc; keep stable on the client too).
-    return [...list].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    );
-  }, [orders, statusFilter, query]);
+  // ── Filter handlers (every change → page 1) ───────────────────────────────
+  const searchTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (searchTimer.current) window.clearTimeout(searchTimer.current);
+    },
+    [],
+  );
+  const onSearchChange = (v: string) => {
+    setQuery(v);
+    if (searchTimer.current) window.clearTimeout(searchTimer.current);
+    searchTimer.current = window.setTimeout(() => {
+      setDebouncedQuery(v);
+      resetToFirstPage();
+    }, SEARCH_DEBOUNCE_MS);
+  };
+  const pickStatus = (s: AdminOrderStatus | "all") => {
+    if (s === statusFilter) return;
+    setStatusFilter(s);
+    resetToFirstPage();
+  };
+  const pickDateFrom = (v: string) => {
+    setDateFrom(v);
+    resetToFirstPage();
+  };
+  const pickDateTo = (v: string) => {
+    setDateTo(v);
+    resetToFirstPage();
+  };
+  const hasActiveFilters =
+    statusFilter !== "all" || debouncedQuery.trim() !== "" || !!dateFrom || !!dateTo;
+  const resetFilters = () => {
+    if (searchTimer.current) window.clearTimeout(searchTimer.current);
+    setStatusFilter("all");
+    setQuery("");
+    setDebouncedQuery("");
+    setDateFrom("");
+    setDateTo("");
+    resetToFirstPage();
+  };
 
   const toggle = (id: string) =>
     setExpanded((prev) => {
@@ -98,11 +197,8 @@ export function OrdersPage() {
     }
   };
 
-  const counts = useMemo(() => {
-    const m: Record<string, number> = { all: orders.length };
-    for (const s of STATUS_ORDER) m[s] = orders.filter((o) => o.status === s).length;
-    return m;
-  }, [orders]);
+  const rangeStart = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const rangeEnd = Math.min(page * pageSize, total);
 
   return (
     <Container className="py-10 sm:py-14">
@@ -119,50 +215,91 @@ export function OrdersPage() {
         </p>
       </div>
 
-      {/* Toolbar: search + status filter */}
-      <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="relative w-full lg:max-w-[360px]">
-          <svg
-            aria-hidden="true"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-navy-400"
-          >
-            <circle cx="11" cy="11" r="7" />
-            <path d="m21 21-4.3-4.3" />
-          </svg>
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Пошук за імʼям, телефоном або №"
-            aria-label="Пошук замовлень"
-            className="w-full rounded-full border border-[color:var(--line-2)] bg-white py-2.5 pl-10 pr-3.5 text-sm text-navy-900 outline-none transition-[border,box-shadow] duration-200 placeholder:text-navy-400/60 focus:border-navy-900 focus:shadow-[0_0_0_3px_rgba(0,201,167,0.18)]"
-          />
+      {/* Toolbar: search + date range + status filter */}
+      <div className="mb-5 flex flex-col gap-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <div className="relative w-full lg:max-w-[360px]">
+            <svg
+              aria-hidden="true"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-navy-400"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="m21 21-4.3-4.3" />
+            </svg>
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => onSearchChange(e.target.value)}
+              placeholder="Пошук за імʼям, телефоном або №"
+              aria-label="Пошук замовлень"
+              className="w-full rounded-full border border-[color:var(--line-2)] bg-white py-2.5 pl-10 pr-3.5 text-sm text-navy-900 outline-none transition-[border,box-shadow] duration-200 placeholder:text-navy-400/60 focus:border-navy-900 focus:shadow-[0_0_0_3px_rgba(0,201,167,0.18)]"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-2 text-xs text-navy-400">
+              Від
+              <input
+                type="date"
+                value={dateFrom}
+                max={dateTo || undefined}
+                onChange={(e) => pickDateFrom(e.target.value)}
+                aria-label="Дата від"
+                className="rounded-lg border border-[color:var(--line-2)] bg-white px-2.5 py-2 text-sm text-navy-900 outline-none transition-[border,box-shadow] focus:border-navy-900 focus:shadow-[0_0_0_3px_rgba(0,201,167,0.18)]"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-xs text-navy-400">
+              До
+              <input
+                type="date"
+                value={dateTo}
+                min={dateFrom || undefined}
+                onChange={(e) => pickDateTo(e.target.value)}
+                aria-label="Дата до"
+                className="rounded-lg border border-[color:var(--line-2)] bg-white px-2.5 py-2 text-sm text-navy-900 outline-none transition-[border,box-shadow] focus:border-navy-900 focus:shadow-[0_0_0_3px_rgba(0,201,167,0.18)]"
+              />
+            </label>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="rounded-full border border-[color:var(--line-2)] bg-white px-3.5 py-2 text-xs font-medium text-navy-700 transition-colors hover:border-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint"
+              >
+                Скинути фільтри
+              </button>
+            )}
+          </div>
         </div>
 
-        <div role="group" aria-label="Фільтр за статусом" className="flex flex-wrap gap-2">
-          <FilterChip
-            active={statusFilter === "all"}
-            onClick={() => setStatusFilter("all")}
-            label="Усі"
-            count={counts.all}
-          />
-          {STATUS_ORDER.map((s) => (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div role="group" aria-label="Фільтр за статусом" className="flex flex-wrap gap-2">
             <FilterChip
-              key={s}
-              active={statusFilter === s}
-              onClick={() => setStatusFilter(s)}
-              label={STATUS_META[s].label}
-              count={counts[s]}
+              active={statusFilter === "all"}
+              onClick={() => pickStatus("all")}
+              label="Усі"
             />
-          ))}
+            {STATUS_ORDER.map((s) => (
+              <FilterChip
+                key={s}
+                active={statusFilter === s}
+                onClick={() => pickStatus(s)}
+                label={STATUS_META[s].label}
+              />
+            ))}
+          </div>
+          {!isLoading && !isError && (
+            <p className="text-xs tabular-nums text-navy-400" aria-live="polite">
+              Знайдено: {total}
+            </p>
+          )}
         </div>
       </div>
 
@@ -176,36 +313,181 @@ export function OrdersPage() {
       )}
 
       {/* Content */}
-      {state === "loading" ? (
-        <SkeletonList />
-      ) : state === "error" ? (
+      {isLoading ? (
+        <SkeletonList rows={Math.min(pageSize, 8)} />
+      ) : isError ? (
         <ErrorBanner onRetry={reload} />
       ) : orders.length === 0 ? (
-        <EmptyState hint="Замовлення зʼявляться тут, щойно покупці оформлять їх у магазині." />
-      ) : filtered.length === 0 ? (
-        <EmptyState
-          title="Нічого не знайдено"
-          hint="Спробуйте змінити пошук або фільтр статусу."
-        />
+        hasActiveFilters ? (
+          <EmptyState
+            title="Нічого не знайдено за фільтрами"
+            hint="Жодне замовлення не відповідає пошуку, статусу чи періоду. Змініть умови або скиньте фільтри."
+          />
+        ) : (
+          <EmptyState hint="Замовлення зʼявляться тут, щойно покупці оформлять їх у магазині." />
+        )
       ) : (
         <>
           <DesktopTable
-            orders={filtered}
+            orders={orders}
             expanded={expanded}
             busyId={busyId}
             onToggle={toggle}
             onStatus={changeStatus}
           />
           <MobileCards
-            orders={filtered}
+            orders={orders}
             expanded={expanded}
             busyId={busyId}
             onToggle={toggle}
             onStatus={changeStatus}
           />
+
+          <PaginationPanel
+            page={page}
+            totalPages={totalPages}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
+            total={total}
+            pageSize={pageSize}
+            onPage={goToPage}
+            onPageSize={changePageSize}
+          />
         </>
       )}
     </Container>
+  );
+}
+
+// ─── Pagination ──────────────────────────────────────────────────────────────
+
+/** "1 … 4 5 6 … 20" — first/last always, a window around the current page,
+ *  ellipsis for the gaps. ≤7 pages → all numbers, no ellipsis. */
+function buildPageList(current: number, totalPages: number): (number | "…")[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+  const keep = [...new Set([1, totalPages, current - 1, current, current + 1])]
+    .filter((p) => p >= 1 && p <= totalPages)
+    .sort((a, b) => a - b);
+  const out: (number | "…")[] = [];
+  let prev = 0;
+  for (const p of keep) {
+    if (p - prev > 1) out.push("…");
+    out.push(p);
+    prev = p;
+  }
+  return out;
+}
+
+function PaginationPanel({
+  page,
+  totalPages,
+  rangeStart,
+  rangeEnd,
+  total,
+  pageSize,
+  onPage,
+  onPageSize,
+}: {
+  page: number;
+  totalPages: number;
+  rangeStart: number;
+  rangeEnd: number;
+  total: number;
+  pageSize: number;
+  onPage: (p: number) => void;
+  onPageSize: (s: number) => void;
+}) {
+  const arrow =
+    "grid h-9 w-9 place-items-center rounded-full border border-[color:var(--line-2)] bg-white text-navy-700 transition-colors hover:border-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[color:var(--line-2)]";
+  return (
+    <nav
+      aria-label="Пагінація замовлень"
+      className="mt-5 flex flex-col items-center gap-3 sm:flex-row sm:justify-between"
+    >
+      <p className="text-xs tabular-nums text-navy-400">
+        {rangeStart}–{rangeEnd} із {total}
+      </p>
+
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => onPage(page - 1)}
+          disabled={page <= 1}
+          aria-label="Попередня сторінка"
+          className={arrow}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+        </button>
+
+        {/* Numbered pages — desktop/tablet only. */}
+        <div className="hidden items-center gap-1.5 sm:flex">
+          {buildPageList(page, totalPages).map((p, i) =>
+            p === "…" ? (
+              <span
+                key={`e${i}`}
+                aria-hidden="true"
+                className="px-1 text-sm text-navy-400"
+              >
+                …
+              </span>
+            ) : (
+              <button
+                key={p}
+                type="button"
+                onClick={() => onPage(p)}
+                aria-label={`Сторінка ${p}`}
+                aria-current={p === page ? "page" : undefined}
+                className={cn(
+                  "h-9 min-w-9 rounded-full px-2 text-sm font-medium tabular-nums transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-mint",
+                  p === page
+                    ? "bg-navy-900 text-white"
+                    : "border border-[color:var(--line-2)] bg-white text-navy-700 hover:border-navy-900",
+                )}
+              >
+                {p}
+              </button>
+            ),
+          )}
+        </div>
+
+        {/* Compact mobile indicator. */}
+        <span className="px-1 text-sm tabular-nums text-navy-700 sm:hidden">
+          стор. {page} із {totalPages}
+        </span>
+
+        <button
+          type="button"
+          onClick={() => onPage(page + 1)}
+          disabled={page >= totalPages}
+          aria-label="Наступна сторінка"
+          className={arrow}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m9 18 6-6-6-6" />
+          </svg>
+        </button>
+      </div>
+
+      <label className="flex items-center gap-2 text-xs text-navy-400">
+        Рядків на сторінці:
+        <select
+          value={pageSize}
+          onChange={(e) => onPageSize(Number(e.target.value))}
+          aria-label="Кількість рядків на сторінці"
+          className="rounded-lg border border-[color:var(--line-2)] bg-white py-1.5 pl-2.5 pr-7 text-xs font-medium text-navy-900 outline-none transition-[border,box-shadow] focus:border-navy-900 focus:shadow-[0_0_0_3px_rgba(0,201,167,0.18)]"
+        >
+          {ORDERS_PAGE_SIZES.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+      </label>
+    </nav>
   );
 }
 
@@ -215,12 +497,10 @@ function FilterChip({
   active,
   onClick,
   label,
-  count,
 }: {
   active: boolean;
   onClick: () => void;
   label: string;
-  count: number;
 }) {
   return (
     <button
@@ -235,34 +515,29 @@ function FilterChip({
       )}
     >
       {label}
-      <span
-        className={cn(
-          "rounded-full px-1.5 text-xs tabular-nums",
-          active ? "bg-white/20 text-white" : "bg-cream text-navy-400",
-        )}
-      >
-        {count}
-      </span>
     </button>
   );
 }
 
 // ─── Shared pieces ───────────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: AdminOrderStatus }) {
-  const m = STATUS_META[status];
+/** Thin status-coloured strip pinned to the left edge of a row/card. */
+function StatusBar({ status }: { status: AdminOrderStatus }) {
   return (
     <span
+      aria-hidden="true"
       className={cn(
-        "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium",
-        m.badge,
+        "absolute inset-y-0 left-0 w-[3px]",
+        STATUS_META[status].bar,
       )}
-    >
-      {m.label}
-    </span>
+    />
   );
 }
 
+/**
+ * The single status carrier in a row/card: its visible TEXT value names the
+ * status (a11y — not colour-only), the tinted border/background echoes it.
+ */
 function StatusSelect({
   value,
   onChange,
@@ -274,13 +549,16 @@ function StatusSelect({
 }) {
   return (
     <label className="inline-flex items-center">
-      <span className="sr-only">Змінити статус замовлення</span>
+      <span className="sr-only">Статус замовлення (змінюється вибором)</span>
       <select
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value as AdminOrderStatus)}
         aria-label="Статус замовлення"
-        className="rounded-lg border border-[color:var(--line-2)] bg-white py-1.5 pl-2.5 pr-7 text-xs font-medium text-navy-900 outline-none transition-[border,box-shadow] focus:border-navy-900 focus:shadow-[0_0_0_3px_rgba(0,201,167,0.18)] disabled:opacity-50"
+        className={cn(
+          "rounded-lg border py-1.5 pl-2.5 pr-7 text-xs font-medium outline-none transition-[border,box-shadow,background,color] focus:border-navy-900 focus:shadow-[0_0_0_3px_rgba(0,201,167,0.18)] disabled:opacity-50",
+          STATUS_META[value].select,
+        )}
       >
         {STATUS_ORDER.map((s) => (
           <option key={s} value={s}>
@@ -396,8 +674,16 @@ function DesktopTable({ orders, expanded, busyId, onToggle, onStatus }: ListProp
             const panelId = `order-${o.id}-details`;
             return (
               <Fragment key={o.id}>
-                <tr className="border-b border-[color:var(--line)] align-top last:border-b-0">
-                  <td className="px-2 py-3">
+                {/* Whole-row tint per status; hover is a darker step of the
+                    SAME hue so rows stay calm and readable. */}
+                <tr
+                  className={cn(
+                    "border-b border-[color:var(--line)] align-top transition-colors last:border-b-0",
+                    STATUS_META[o.status].row,
+                  )}
+                >
+                  <td className="relative px-2 py-3">
+                    <StatusBar status={o.status} />
                     <ExpandToggle
                       expanded={isOpen}
                       onClick={() => onToggle(o.id)}
@@ -430,7 +716,12 @@ function DesktopTable({ orders, expanded, busyId, onToggle, onStatus }: ListProp
                   </td>
                 </tr>
                 {isOpen && (
-                  <tr className="border-b border-[color:var(--line)] last:border-b-0">
+                  <tr
+                    className={cn(
+                      "border-b border-[color:var(--line)] last:border-b-0",
+                      STATUS_META[o.status].row,
+                    )}
+                  >
                     <td colSpan={7} className="px-3 pb-4 pt-0">
                       <div id={panelId}>
                         <OrderDetails order={o} />
@@ -458,16 +749,17 @@ function MobileCards({ orders, expanded, busyId, onToggle, onStatus }: ListProps
         return (
           <li
             key={o.id}
-            className="rounded-xl border border-[color:var(--line)] bg-white p-4"
+            className={cn(
+              "relative overflow-hidden rounded-xl border border-[color:var(--line)] p-4 transition-colors",
+              STATUS_META[o.status].row,
+            )}
           >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="font-medium text-navy-900">{o.number}</div>
-                <div className="text-xs text-navy-400">
-                  {formatDateTime(o.createdAt)}
-                </div>
+            <StatusBar status={o.status} />
+            <div>
+              <div className="font-medium text-navy-900">{o.number}</div>
+              <div className="text-xs text-navy-400">
+                {formatDateTime(o.createdAt)}
               </div>
-              <StatusBadge status={o.status} />
             </div>
 
             <div className="mt-3 text-sm">

@@ -217,7 +217,11 @@ model Order {
   updatedAt      DateTime       @updatedAt
 
   @@index([userId])
-  @@index([status])
+  // Адмін-список: keyset-пагінація (createdAt DESC, id DESC) і той самий
+  // порядок під фільтром статусу. Окремий @@index([status]) прибрано — він
+  // префікс композитного.
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([status, createdAt(sort: Desc), id(sort: Desc)])
 }
 
 model OrderItem {

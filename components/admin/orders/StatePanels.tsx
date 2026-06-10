@@ -1,16 +1,28 @@
 "use client";
 
-/** Loading skeleton shaped like the orders list. */
-export function SkeletonList() {
+import { cn } from "@/lib/cn";
+
+/** Loading skeleton shaped like the orders list. `rows` lets the pager show a
+ *  short strip while the next page loads under the already-visible table. */
+export function SkeletonList({
+  rows = 6,
+  className,
+}: {
+  rows?: number;
+  className?: string;
+}) {
   return (
     <div
       role="status"
       aria-busy="true"
       aria-live="polite"
-      className="overflow-hidden rounded-xl border border-[color:var(--line)] bg-white"
+      className={cn(
+        "overflow-hidden rounded-xl border border-[color:var(--line)] bg-white",
+        className,
+      )}
     >
       <span className="sr-only">Завантаження замовлень…</span>
-      {Array.from({ length: 6 }).map((_, i) => (
+      {Array.from({ length: rows }).map((_, i) => (
         <div
           key={i}
           className="flex items-center gap-4 border-b border-[color:var(--line)] px-4 py-4 last:border-b-0"

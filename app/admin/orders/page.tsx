@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import { LoginModalProvider } from "@/components/ui/LoginModalProvider";
 import { Header } from "@/components/layout/Header";
@@ -16,7 +17,10 @@ export default function Page() {
     <LoginModalProvider>
       <Header />
       <main className="min-h-[60vh] bg-cream/20">
-        <OrdersPage />
+        {/* OrdersPage reads ?page/?pageSize via useSearchParams → Suspense. */}
+        <Suspense fallback={null}>
+          <OrdersPage />
+        </Suspense>
       </main>
       <Footer />
     </LoginModalProvider>
