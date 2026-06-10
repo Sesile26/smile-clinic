@@ -17,6 +17,11 @@ export default auth((req) => {
   const session = req.auth;
   const isLoggedIn = !!session;
 
+  // Already signed in → /login is pointless, go home.
+  if (isLoggedIn && nextUrl.pathname === "/login") {
+    return NextResponse.redirect(new URL("/", req.url));
+  }
+
   const isStaffRoute = STAFF_ROUTES.some((p) =>
     nextUrl.pathname.startsWith(p),
   );
@@ -24,18 +29,25 @@ export default auth((req) => {
     nextUrl.pathname.startsWith(p),
   );
 
+  // GUEST on ANY protected route → login (not home), carrying callbackUrl so
+  // after signing in they land back where they originally wanted to go.
+  if (!isLoggedIn && (isStaffRoute || isAuthRoute)) {
+    const loginUrl = new URL("/login", req.url);
+    loginUrl.searchParams.set(
+      "callbackUrl",
+      nextUrl.pathname + nextUrl.search,
+    );
+    return NextResponse.redirect(loginUrl);
+  }
+
+  // LOGGED IN but the wrong role for a staff-only zone (e.g. a patient or a
+  // doctor opening /admin/*) → home. This redirect is UX only: every API
+  // route still re-checks the role server-side before touching data.
   if (isStaffRoute) {
-    if (!isLoggedIn) {
-      return NextResponse.redirect(new URL("/login", req.url));
-    }
     const role = session?.user?.role;
     if (role !== "ADMIN" && role !== "STAFF") {
       return NextResponse.redirect(new URL("/", req.url));
     }
-  }
-
-  if (isAuthRoute && !isLoggedIn) {
-    return NextResponse.redirect(new URL("/login", req.url));
   }
 
   return NextResponse.next();

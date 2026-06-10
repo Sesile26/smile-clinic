@@ -27,6 +27,10 @@ import {
 interface LoginModalProps {
   open: boolean;
   onClose: () => void;
+  /** Same-origin path to land on after a successful sign-in (default "/").
+   *  The /login page passes the sanitized ?callbackUrl here so a guest who was
+   *  redirected off a protected route continues where they wanted to go. */
+  callbackUrl?: string;
 }
 
 type Tab = "signin" | "signup";
@@ -41,7 +45,11 @@ const fieldInput =
 const fieldLabel = "text-xs font-medium tracking-[0.04em] text-navy-700";
 const fieldError = "text-xs text-red-500";
 
-export function LoginModal({ open, onClose }: LoginModalProps) {
+export function LoginModal({
+  open,
+  onClose,
+  callbackUrl = "/",
+}: LoginModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const signinTabRef = useRef<HTMLButtonElement>(null);
   const signupTabRef = useRef<HTMLButtonElement>(null);
@@ -172,7 +180,7 @@ export function LoginModal({ open, onClose }: LoginModalProps) {
 
       // Hard navigation: forces useSession on the destination page to pick
       // up the freshly-set cookie without an extra round-trip.
-      window.location.href = "/";
+      window.location.href = callbackUrl;
     } catch (err) {
       console.error("[signin] unexpected error", err);
       setFormError("Щось пішло не так. Спробуйте ще раз.");
@@ -220,7 +228,7 @@ export function LoginModal({ open, onClose }: LoginModalProps) {
       await signIn("credentials", {
         email: values.email,
         password: values.password,
-        callbackUrl: "/",
+        callbackUrl,
         redirect: true,
       });
     } catch (err) {
@@ -232,7 +240,7 @@ export function LoginModal({ open, onClose }: LoginModalProps) {
 
   const handleGoogle = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
-    await signIn("google", { callbackUrl: "/", redirect: true });
+    await signIn("google", { callbackUrl, redirect: true });
   };
 
   // ─── Render ────────────────────────────────────────────────────────────────
