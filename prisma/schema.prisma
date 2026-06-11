@@ -178,24 +178,36 @@ model AvailabilitySlot {
 
 // ─── Shop ─────────────────────────────────────────────────────────────────────
 
+model Category {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  products  Product[]
+}
+
 model Product {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   name        String
   description String?
   // Гроші — Decimal, не Float (без похибок округлення). UAH.
-  price       Decimal  @db.Decimal(10, 2)
+  price       Decimal   @db.Decimal(10, 2)
   imageUrl    String?
-  category    String?
-  stock       Int      @default(0) // залишок; 0 = купити не можна
+  // Категорія тепер окрема модель. SetNull — видалення категорії лишає товари
+  // без категорії (не нищить їх); саму політику видалення вирішує API.
+  categoryId  String?
+  category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  stock       Int       @default(0) // залишок; 0 = купити не можна
   // Soft delete: "видалення" товару адміном = isActive=false. Реального DELETE
   // не робимо — інакше зламалися б OrderItem наявних замовлень (FK Restrict).
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   orderItems OrderItem[]
 
   @@index([isActive])
+  @@index([categoryId])
 }
 
 model Order {
