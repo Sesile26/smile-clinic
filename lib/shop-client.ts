@@ -6,6 +6,7 @@
  */
 
 import type {
+  ApiCategory,
   ApiError,
   ApiOrder,
   ApiProduct,
@@ -50,8 +51,53 @@ export interface ProductInput {
   description?: string;
   price: number;
   stock: number;
-  category?: string;
+  /** Existing category id, or null for "Без категорії". */
+  categoryId: string | null;
   imageUrl?: string;
+}
+
+// ─── Categories ──────────────────────────────────────────────────────────────
+
+export async function getCategories(
+  signal?: AbortSignal,
+): Promise<ApiCategory[]> {
+  const res = await fetch("/api/categories", { cache: "no-store", signal });
+  if (!res.ok) throw await toError(res);
+  return (await res.json()) as ApiCategory[];
+}
+
+export async function createCategory(name: string): Promise<ApiCategory> {
+  const res = await fetch("/api/categories", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw await toError(res);
+  return (await res.json()) as ApiCategory;
+}
+
+export async function renameCategory(
+  id: string,
+  name: string,
+): Promise<ApiCategory> {
+  const res = await fetch(`/api/categories/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw await toError(res);
+  return (await res.json()) as ApiCategory;
+}
+
+/** Delete a category. When it still has products, pass reassign=true to move
+ *  them to "Без категорії" first (server does it in one transaction). */
+export async function deleteCategory(
+  id: string,
+  reassign = false,
+): Promise<void> {
+  const qs = reassign ? "?reassign=null" : "";
+  const res = await fetch(`/api/categories/${id}${qs}`, { method: "DELETE" });
+  if (!res.ok) throw await toError(res);
 }
 
 export async function createProduct(input: ProductInput): Promise<ApiProduct> {

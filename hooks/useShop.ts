@@ -30,14 +30,17 @@ export function useShopRole(): ShopIdentity {
 }
 
 function localToApi(p: LocalProduct): ApiProduct {
+  // The offline mirror only knows availability, not the exact count (stock is
+  // staff-only and never persisted). Managing the catalog is online-only.
   return {
     id: p.id,
     name: p.name,
     description: p.description,
     price: p.price,
     imageUrl: p.imageUrl,
-    category: p.category,
-    stock: p.stock,
+    categoryId: p.categoryId,
+    categoryName: p.categoryName,
+    inStock: p.inStock,
     isActive: p.isActive,
   };
 }
@@ -82,9 +85,19 @@ export function useProducts(online: boolean): UseProductsResult {
       .then((products) => {
         setServer({ products, state: "ready" });
         // Refresh the offline mirror (clear stale + write the current set).
+        // Persist only the availability boolean — never the exact stock count,
+        // even for a staff session (defence in depth on a shared device).
         const now = Date.now();
         const rows: LocalProduct[] = products.map((p) => ({
-          ...p,
+          id: p.id,
+          name: p.name,
+          description: p.description,
+          price: p.price,
+          imageUrl: p.imageUrl,
+          categoryId: p.categoryId,
+          categoryName: p.categoryName,
+          inStock: p.inStock,
+          isActive: p.isActive,
           lastMirroredAt: now,
         }));
         void db.transaction("rw", db.products, async () => {

@@ -1,11 +1,18 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import { getActor, isStaff, shopError } from "@/lib/shop-server";
+import {
+  getActor,
+  isStaff,
+  shopError,
+  toApiProduct,
+  PRODUCT_SELECT,
+} from "@/lib/shop-server";
 import type { ApiProduct } from "@/lib/shop-types";
 
 /**
- * Single product mutations — STAFF/ADMIN only (re-checked server-side).
+ * Single product mutations — STAFF/ADMIN only (re-checked server-side). Both
+ * handlers are staff-gated, so the response includes the exact stock.
  *
  *  PATCH  → edit fields (name, description, price, stock, category, imageUrl).
  *  DELETE → SOFT delete (isActive=false). We never hard-delete: OrderItem rows
@@ -13,39 +20,6 @@ import type { ApiProduct } from "@/lib/shop-types";
  *           order history would be blocked anyway. Soft delete keeps history
  *           intact and hides the item from the catalog.
  */
-
-const SELECT = {
-  id: true,
-  name: true,
-  description: true,
-  price: true,
-  imageUrl: true,
-  category: true,
-  stock: true,
-  isActive: true,
-} as const;
-
-function toApiProduct(p: {
-  id: string;
-  name: string;
-  description: string | null;
-  price: Prisma.Decimal;
-  imageUrl: string | null;
-  category: string | null;
-  stock: number;
-  isActive: boolean;
-}): ApiProduct {
-  return {
-    id: p.id,
-    name: p.name,
-    description: p.description,
-    price: p.price.toNumber(),
-    imageUrl: p.imageUrl,
-    category: p.category,
-    stock: p.stock,
-    isActive: p.isActive,
-  };
-}
 
 export async function PATCH(
   request: Request,
@@ -68,7 +42,8 @@ export async function PATCH(
   const b = (body ?? {}) as Record<string, unknown>;
 
   // Build a partial update, validating only the fields actually provided.
-  const data: Prisma.ProductUpdateInput = {};
+  // Unchecked input so the categoryId FK scalar can be set directly.
+  const data: Prisma.ProductUncheckedUpdateInput = {};
 
   if (b.name !== undefined) {
     if (typeof b.name !== "string" || b.name.trim().length < 2) {
@@ -96,11 +71,15 @@ export async function PATCH(
     }
     data.stock = stockNum;
   }
-  if (b.category !== undefined) {
-    data.category =
-      typeof b.category === "string" && b.category.trim()
-        ? b.category.trim()
-        : null;
+  if (b.categoryId !== undefined) {
+    if (
+      b.categoryId != null &&
+      (typeof b.categoryId !== "string" || b.categoryId.trim() === "")
+    ) {
+      return shopError(400, "validation", "Невалідна категорія");
+    }
+    // Set the FK scalar directly (null → "Без категорії").
+    data.categoryId = (b.categoryId as string | null) ?? null;
   }
   if (b.imageUrl !== undefined) {
     data.imageUrl =
@@ -116,15 +95,17 @@ export async function PATCH(
     const updated = await prisma.product.update({
       where: { id },
       data,
-      select: SELECT,
+      select: PRODUCT_SELECT,
     });
-    return NextResponse.json<ApiProduct>(toApiProduct(updated));
+    return NextResponse.json<ApiProduct>(toApiProduct(updated, true));
   } catch (err) {
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2025"
-    ) {
-      return shopError(404, "not_found", "Товар не знайдено");
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      if (err.code === "P2025") {
+        return shopError(404, "not_found", "Товар не знайдено");
+      }
+      if (err.code === "P2003") {
+        return shopError(400, "validation", "Категорію не знайдено");
+      }
     }
     console.error("PATCH /api/products/[id] failed", err);
     return shopError(500, "server", "Не вдалося оновити товар");

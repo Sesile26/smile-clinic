@@ -13,9 +13,23 @@ export interface ApiProduct {
   /** UAH, for display. Server computes order totals from the DB, not this. */
   price: number;
   imageUrl: string | null;
-  category: string | null;
-  stock: number;
+  /** FK to Category — the catalog filter matches on this id (null = "Без
+   *  категорії"). The denormalized name below is for display only. */
+  categoryId: string | null;
+  categoryName: string | null;
+  /** Public availability — always present, the only stock signal patients get. */
+  inStock: boolean;
+  /** Exact remaining units. Sent ONLY to STAFF/ADMIN; undefined for patients
+   *  and guests (the server omits it — see lib/shop-server toApiProduct). */
+  stock?: number;
   isActive: boolean;
+}
+
+/** A product category with its live product count (for the manage panel). */
+export interface ApiCategory {
+  id: string;
+  name: string;
+  productCount: number;
 }
 
 /** One line a client wants to order — only id + quantity are trusted. */
@@ -54,6 +68,7 @@ export type ShopErrorCode =
   | "forbidden"
   | "validation"
   | "not_found"
+  | "conflict" // duplicate name, or delete blocked by referencing rows
   | "out_of_stock" // requested qty exceeds available stock
   | "inactive" // product is not purchasable (isActive=false / deleted)
   | "np_unavailable" // Nova Poshta proxy failed / no API key

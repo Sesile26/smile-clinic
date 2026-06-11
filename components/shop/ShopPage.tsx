@@ -17,6 +17,12 @@ import { CartProvider, useCart } from "./CartContext";
 import { ProductCard } from "./ProductCard";
 import { CartDrawer } from "./CartDrawer";
 import { ProductFormModal, type ProductFormValues } from "./ProductFormModal";
+import { CategoriesModal } from "./CategoriesModal";
+import {
+  useShopCategories,
+  UNCATEGORIZED,
+  UNCATEGORIZED_LABEL,
+} from "./useShopCategories";
 import {
   EmptyState,
   ErrorBanner,
@@ -40,8 +46,15 @@ function ShopInner() {
 
   const { products, state, reload, source } = useProducts(online);
 
+  // Real category store (GET /api/categories) — feeds the manage modal, the
+  // catalog filter, and the product-form select. After a category mutation it
+  // refetches AND triggers a catalog reload (passed as onMutated) so renamed/
+  // reassigned products show up immediately.
+  const cats = useShopCategories(reload);
+
   const [category, setCategory] = useState<string>("all");
   const [cartOpen, setCartOpen] = useState(false);
+  const [catsOpen, setCatsOpen] = useState(false);
 
   // Admin form + delete state (API-backed; reload() refetches after a change).
   const [formOpen, setFormOpen] = useState(false);
@@ -51,22 +64,36 @@ function ShopInner() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const categories = useMemo(() => {
-    const set = new Set<string>();
-    for (const p of products) if (p.category) set.add(p.category);
-    return [...set].sort((a, b) => a.localeCompare(b, "uk"));
-  }, [products]);
+  // Products with no category — drives the "Без категорії" filter chip + count.
+  const uncategorizedCount = useMemo(
+    () => products.filter((p) => !p.categoryId).length,
+    [products],
+  );
+
+  const validIds = useMemo(
+    () => new Set(cats.categories.map((c) => c.id)),
+    [cats.categories],
+  );
+
+  // If the selected category was renamed/deleted out from under us, fall back
+  // to "all" so the catalog never shows an empty, stale filter.
+  const activeCategory =
+    category !== "all" && category !== UNCATEGORIZED && !validIds.has(category)
+      ? "all"
+      : category;
 
   const filtered = useMemo(() => {
-    const list =
-      category === "all"
-        ? products
-        : products.filter((p) => p.category === category);
+    const inCategory = (p: ApiProduct) => {
+      if (activeCategory === "all") return true;
+      if (activeCategory === UNCATEGORIZED) return !p.categoryId;
+      return p.categoryId === activeCategory; // match by id, not name
+    };
+    const list = products.filter(inCategory);
     // Availability sort: in-stock (active) first, out-of-stock last. Array.sort
     // is stable, so the existing order is preserved WITHIN each group.
-    const inStock = (p: ApiProduct) => (p.isActive && p.stock > 0 ? 1 : 0);
-    return [...list].sort((a, b) => inStock(b) - inStock(a));
-  }, [products, category]);
+    const rank = (p: ApiProduct) => (p.isActive && p.inStock ? 1 : 0);
+    return [...list].sort((a, b) => rank(b) - rank(a));
+  }, [products, activeCategory]);
 
   const qtyById = useMemo(() => {
     const m = new Map<string, number>();
@@ -139,34 +166,37 @@ function ShopInner() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setCartOpen(true)}
-          className="relative inline-flex shrink-0 items-center gap-2 self-start rounded-full border border-[color:var(--line-2)] bg-white px-4 py-2.5 text-sm font-medium text-navy-900 transition-colors hover:border-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint lg:self-auto"
-          aria-label={`Відкрити кошик, товарів: ${count}`}
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
+        {/* Cart is buyer-only — STAFF/ADMIN don't purchase, so no cart UI. */}
+        {!canManage && (
+          <button
+            type="button"
+            onClick={() => setCartOpen(true)}
+            className="relative inline-flex shrink-0 items-center gap-2 self-start rounded-full border border-[color:var(--line-2)] bg-white px-4 py-2.5 text-sm font-medium text-navy-900 transition-colors hover:border-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint lg:self-auto"
+            aria-label={`Відкрити кошик, товарів: ${count}`}
           >
-            <circle cx="9" cy="21" r="1" />
-            <circle cx="20" cy="21" r="1" />
-            <path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6" />
-          </svg>
-          Кошик
-          {count > 0 && (
-            <span className="grid h-5 min-w-5 place-items-center rounded-full bg-mint px-1 text-xs font-semibold tabular-nums text-navy-900">
-              {count}
-            </span>
-          )}
-        </button>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="9" cy="21" r="1" />
+              <circle cx="20" cy="21" r="1" />
+              <path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6" />
+            </svg>
+            Кошик
+            {count > 0 && (
+              <span className="grid h-5 min-w-5 place-items-center rounded-full bg-mint px-1 text-xs font-semibold tabular-nums text-navy-900">
+                {count}
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
       {!online && <OfflineNotice className="mb-5" />}
@@ -180,21 +210,27 @@ function ShopInner() {
         </div>
       )}
 
-      {/* Toolbar: category filter + (admin) add button */}
+      {/* Toolbar: category filter + (admin) manage buttons */}
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div
           role="group"
           aria-label="Фільтр за категорією"
           className="flex flex-wrap gap-2"
         >
-          {["all", ...categories].map((c) => {
-            const active = category === c;
+          {[
+            { value: "all", label: "Усі" },
+            ...cats.categories.map((c) => ({ value: c.id, label: c.name })),
+            ...(uncategorizedCount > 0
+              ? [{ value: UNCATEGORIZED, label: UNCATEGORIZED_LABEL }]
+              : []),
+          ].map(({ value, label }) => {
+            const active = activeCategory === value;
             return (
               <button
-                key={c}
+                key={value}
                 type="button"
                 aria-pressed={active}
-                onClick={() => setCategory(c)}
+                onClick={() => setCategory(value)}
                 className={cn(
                   "rounded-full border px-4 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-mint",
                   active
@@ -202,23 +238,33 @@ function ShopInner() {
                     : "border-[color:var(--line-2)] bg-white text-navy-700 hover:border-navy-900",
                 )}
               >
-                {c === "all" ? "Усі" : c}
+                {label}
               </button>
             );
           })}
         </div>
 
         {canManage && (
-          <button
-            type="button"
-            onClick={openAdd}
-            disabled={!online}
-            title={!online ? "Керування доступне лише онлайн" : undefined}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-navy-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-black focus:outline-none focus-visible:ring-2 focus-visible:ring-mint focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-            Додати товар
-          </button>
+          <div className="flex shrink-0 gap-2">
+            <button
+              type="button"
+              onClick={() => setCatsOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-full border border-[color:var(--line-2)] bg-white px-4 py-2 text-sm font-medium text-navy-900 transition-colors hover:border-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 7h18M3 12h18M3 17h18" /></svg>
+              Категорії
+            </button>
+            <button
+              type="button"
+              onClick={openAdd}
+              disabled={!online}
+              title={!online ? "Керування доступне лише онлайн" : undefined}
+              className="inline-flex items-center gap-1.5 rounded-full bg-navy-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-black focus:outline-none focus-visible:ring-2 focus-visible:ring-mint focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+              Додати товар
+            </button>
+          </div>
         )}
       </div>
 
@@ -260,7 +306,9 @@ function ShopInner() {
         </p>
       )}
 
-      <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} online={online} />
+      {!canManage && (
+        <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} online={online} />
+      )}
 
       {/* Admin-only product form. Mounted only while open, keyed by id so the
           form prefills from its lazy initial state (no prop→state effect). */}
@@ -268,6 +316,7 @@ function ShopInner() {
         <ProductFormModal
           key={editing?.id ?? "new"}
           initial={editing}
+          categories={cats.categories}
           submitting={saving}
           error={saveError}
           onSave={handleSave}
@@ -276,6 +325,20 @@ function ShopInner() {
             setFormOpen(false);
             setEditing(null);
           }}
+        />
+      )}
+
+      {/* Admin-only category manager (mounted only while open). */}
+      {canManage && catsOpen && (
+        <CategoriesModal
+          categories={cats.categories}
+          uncategorizedCount={uncategorizedCount}
+          state={cats.state}
+          onAdd={cats.add}
+          onRename={cats.rename}
+          onRemove={cats.remove}
+          onReload={cats.reload}
+          onClose={() => setCatsOpen(false)}
         />
       )}
     </Container>

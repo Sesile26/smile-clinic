@@ -30,6 +30,24 @@ function CategoryGlyph({
   }
 }
 
+/** Low-stock threshold for the manager warehouse view (≤ this → amber). */
+const LOW_STOCK = 3;
+
+/** Manager-only exact stock line: red at 0, amber when low, navy otherwise. */
+function StockLine({ stock }: { stock: number }) {
+  const tone =
+    stock <= 0
+      ? "text-red-600"
+      : stock <= LOW_STOCK
+        ? "text-amber-600"
+        : "text-navy-700";
+  return (
+    <p className={cn("mt-3 text-xs font-medium tabular-nums", tone)}>
+      {stock <= 0 ? "Немає на складі" : `Залишилось: ${stock}`}
+    </p>
+  );
+}
+
 interface ProductCardProps {
   product: ApiProduct;
   /** Offline → catalog is read-only, add button disabled. */
@@ -59,9 +77,10 @@ export function ProductCard({
   const [imgError, setImgError] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
-  const outOfStock = product.stock <= 0;
-  const maxedInCart = inCartQty >= product.stock;
-  const addDisabled = disabled || outOfStock || maxedInCart;
+  // `inStock` is the only availability signal patients get; managers also have
+  // the exact `stock` number.
+  const outOfStock = !product.inStock;
+  const addDisabled = disabled || outOfStock;
   const showImage = !!product.imageUrl && !imgError;
 
   return (
@@ -91,14 +110,14 @@ export function ProductCard({
                 outOfStock && "opacity-40",
               )}
             >
-              <CategoryGlyph category={product.category} size={56} />
+              <CategoryGlyph category={product.categoryName} size={56} />
             </div>
           </>
         )}
 
-        {product.category && (
+        {product.categoryName && (
           <span className="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-medium text-navy-900">
-            {product.category}
+            {product.categoryName}
           </span>
         )}
 
@@ -120,60 +139,63 @@ export function ProductCard({
           </p>
         )}
 
-        {/* Availability STATUS only — never the exact stock number. The real
-            stock limit still applies silently (add button disabled at the cap;
-            server re-checks on order). */}
-        <p
-          className={cn(
-            "mt-3 text-xs font-medium",
-            outOfStock ? "text-red-600" : "text-mint-600",
-          )}
-        >
-          {outOfStock ? "Немає в наявності" : "В наявності"}
-        </p>
+        {/* Availability. Manager → EXACT count for stock scanning (amber when
+            low, red at 0). Buyer → status word only, never the number. */}
+        {canManage ? (
+          <StockLine stock={product.stock ?? 0} />
+        ) : (
+          <p
+            className={cn(
+              "mt-3 text-xs font-medium",
+              outOfStock ? "text-red-600" : "text-mint-600",
+            )}
+          >
+            {outOfStock ? "Немає в наявності" : "В наявності"}
+          </p>
+        )}
 
         <div className="mt-2 flex items-center justify-between gap-3">
           <span className="text-lg font-medium tabular-nums text-navy-900">
             {formatUAH(product.price)}
           </span>
-          <button
-            type="button"
-            onClick={onAdd}
-            disabled={addDisabled}
-            aria-label={
-              outOfStock
-                ? `«${product.name}» немає в наявності`
-                : `Додати «${product.name}» в кошик`
-            }
-            title={
-              maxedInCart && !outOfStock ? "Більше немає в наявності" : undefined
-            }
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-colors duration-200",
-              "focus:outline-none focus-visible:ring-2 focus-visible:ring-mint focus-visible:ring-offset-1",
-              "disabled:cursor-not-allowed disabled:opacity-50",
-              "bg-navy-900 text-white hover:bg-black",
-            )}
-          >
-            <svg
-              aria-hidden="true"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+          {/* Buyers (PATIENT/guest) buy; managers don't — no add button. */}
+          {!canManage && (
+            <button
+              type="button"
+              onClick={onAdd}
+              disabled={addDisabled}
+              aria-label={
+                outOfStock
+                  ? `«${product.name}» немає в наявності`
+                  : `Додати «${product.name}» в кошик`
+              }
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-colors duration-200",
+                "focus:outline-none focus-visible:ring-2 focus-visible:ring-mint focus-visible:ring-offset-1",
+                "disabled:cursor-not-allowed disabled:opacity-50",
+                "bg-navy-900 text-white hover:bg-black",
+              )}
             >
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-            {outOfStock
-              ? "Немає"
-              : inCartQty > 0
-                ? `У кошику · ${inCartQty}`
-                : "Додати"}
-          </button>
+              <svg
+                aria-hidden="true"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              {outOfStock
+                ? "Немає"
+                : inCartQty > 0
+                  ? `У кошику · ${inCartQty}`
+                  : "Додати"}
+            </button>
+          )}
         </div>
 
         {/* ── Manage actions (STAFF/ADMIN only; role from session) ─────────── */}

@@ -5,7 +5,7 @@ import { cn } from "@/lib/cn";
 import { btnBase, btnGhost, btnMint } from "@/lib/buttons";
 import { IcoClose } from "@/components/icons";
 import type { ApiProduct } from "@/lib/shop-types";
-import { CATEGORIES } from "./data";
+import type { ShopCategory } from "./useShopCategories";
 
 /** Payload the parent sends to the API (id is server-assigned on create). */
 export interface ProductFormValues {
@@ -13,13 +13,16 @@ export interface ProductFormValues {
   description: string;
   price: number;
   stock: number;
-  category: string;
+  /** Existing category id, or null for "Без категорії". */
+  categoryId: string | null;
   imageUrl?: string;
 }
 
 interface ProductFormModalProps {
   /** null → "add" mode; a product → "edit" mode (prefilled). */
   initial: ApiProduct | null;
+  /** Managed categories for the select (from useShopCategories). */
+  categories: ShopCategory[];
   onSave: (values: ProductFormValues) => void;
   onClose: () => void;
   /** Submit in flight — disables actions. */
@@ -27,6 +30,9 @@ interface ProductFormModalProps {
   /** Server error from the last save attempt. */
   error?: string | null;
 }
+
+/** Select value for "Без категорії" (empty category on save). */
+const NO_CATEGORY = "";
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -47,6 +53,7 @@ const fieldError = "text-xs text-red-500";
  */
 export function ProductFormModal({
   initial,
+  categories,
   onSave,
   onClose,
   submitting = false,
@@ -57,9 +64,13 @@ export function ProductFormModal({
   const [name, setName] = useState(initial?.name ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
   const [price, setPrice] = useState(initial ? String(initial.price) : "");
-  const [stock, setStock] = useState(initial ? String(initial.stock) : "");
-  const [category, setCategory] = useState<string>(
-    initial?.category ?? CATEGORIES[0],
+  // Managers always receive the exact stock; guard the optional field anyway.
+  const [stock, setStock] = useState(
+    initial?.stock != null ? String(initial.stock) : "",
+  );
+  // Default to the product's own category id (edit) or "Без категорії" (add).
+  const [categoryId, setCategoryId] = useState<string>(
+    initial?.categoryId ?? NO_CATEGORY,
   );
   const [imageUrl, setImageUrl] = useState(initial?.imageUrl ?? "");
   const [touched, setTouched] = useState(false);
@@ -122,7 +133,7 @@ export function ProductFormModal({
       description: description.trim(),
       price: Math.round(priceNum),
       stock: Math.round(stockNum),
-      category,
+      categoryId: categoryId === NO_CATEGORY ? null : categoryId,
       imageUrl: imageUrl.trim() || undefined,
     });
   };
@@ -247,13 +258,23 @@ export function ProductFormModal({
             </label>
             <select
               id="pf-category"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
               className={fieldInput}
             >
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
+              <option value={NO_CATEGORY}>Без категорії</option>
+              {/* Keep the product's current category selectable even if it's
+                  missing from the loaded list (rare race). */}
+              {(initial?.categoryId &&
+              !categories.some((c) => c.id === initial.categoryId)
+                ? [
+                    { id: initial.categoryId, name: initial.categoryName ?? "—" },
+                    ...categories,
+                  ]
+                : categories
+              ).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
                 </option>
               ))}
             </select>

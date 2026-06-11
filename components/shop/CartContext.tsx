@@ -37,11 +37,13 @@ export function useCart(): CartContextValue {
 
 const MAX_QTY = 99;
 
-/** Upper bound for a line = the product's REAL stock (capped at MAX_QTY). The
- *  cap is silent — we never surface the number; the user just can't go higher.
- *  The server re-validates stock on order regardless. */
+/** Upper bound for a line. Patients no longer receive the exact stock (it's
+ *  staff-only), so the client caps at MAX_QTY and the SERVER is the authority —
+ *  it re-validates stock on order and returns out_of_stock if exceeded. When a
+ *  stock number is present (shouldn't happen in the buyer cart) we still honour
+ *  it as an extra silent ceiling. */
 function capQty(item: CartItem, desired: number): number {
-  return Math.min(desired, item.product.stock, MAX_QTY);
+  return Math.min(desired, item.product.stock ?? MAX_QTY, MAX_QTY);
 }
 
 /**

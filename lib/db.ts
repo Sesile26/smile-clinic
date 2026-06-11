@@ -78,8 +78,11 @@ export interface LocalProduct {
   description: string | null;
   price: number;
   imageUrl: string | null;
-  category: string | null;
-  stock: number;
+  categoryId: string | null;
+  categoryName: string | null;
+  /** Only the availability boolean is mirrored — the exact stock count is
+   *  staff-only and never written to the (patient-readable) offline store. */
+  inStock: boolean;
   isActive: boolean;
   lastMirroredAt: number;
 }
@@ -153,6 +156,36 @@ export class ClinicDatabase extends Dexie {
       products: "id, isActive, category",
       profile: "userId",
     });
+
+    // v5: product mirror now stores `inStock` (boolean) instead of the exact
+    // `stock` count — exact stock is staff-only and must not be persisted to a
+    // patient-readable store. Same index shape; clear products so stale rows
+    // (with the old `stock` field) don't linger if the first load is offline.
+    this.version(5)
+      .stores({
+        appointments: "id, date, status, doctorId, patientId",
+        patients: "id, name",
+        doctors: "id",
+        slots: "id, doctorId, status, startsAt",
+        products: "id, isActive, category",
+        profile: "userId",
+      })
+      .upgrade((tx) => tx.table("products").clear().then(() => undefined));
+
+    // v6: categories are a real model — the product mirror now stores
+    // `categoryId` + `categoryName` instead of the old free-text `category`.
+    // The index moves from `category` to `categoryId`; clear products so stale
+    // rows (old shape) don't linger if the first post-upgrade load is offline.
+    this.version(6)
+      .stores({
+        appointments: "id, date, status, doctorId, patientId",
+        patients: "id, name",
+        doctors: "id",
+        slots: "id, doctorId, status, startsAt",
+        products: "id, isActive, categoryId",
+        profile: "userId",
+      })
+      .upgrade((tx) => tx.table("products").clear().then(() => undefined));
   }
 }
 
