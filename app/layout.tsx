@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { DM_Sans, Cormorant_Garamond } from "next/font/google";
 import { SessionProvider } from "@/components/auth/SessionProvider";
 import { ServiceWorkerCleanup } from "@/components/pwa/ServiceWorkerCleanup";
+import { CartProvider } from "@/components/shop/CartContext";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -42,7 +43,11 @@ export default function RootLayout({
     >
       <body className="min-h-full font-sans text-navy-900">
         <ServiceWorkerCleanup />
-        <SessionProvider>{children}</SessionProvider>
+        {/* Cart lives at the root so it survives client-side navigation; it
+            persists to / hydrates from Dexie for reloads and direct entry. */}
+        <SessionProvider>
+          <CartProvider>{children}</CartProvider>
+        </SessionProvider>
       </body>
     </html>
   );

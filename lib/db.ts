@@ -101,6 +101,19 @@ export interface LocalProfile {
   lastMirroredAt: number;
 }
 
+/**
+ * A line in the persisted shopping cart. Only the id + quantity are stored —
+ * product details (name, price, availability) are re-resolved from the live
+ * catalog on hydration, so a stale snapshot can never be ordered. Wiped on
+ * signOut with the rest of the DB (shared-device policy).
+ */
+export interface LocalCartItem {
+  productId: string;
+  quantity: number;
+  /** Epoch ms when first added — preserves cart order across reloads. */
+  addedAt: number;
+}
+
 export class ClinicDatabase extends Dexie {
   appointments!: Table<LocalAppointment, string>;
   patients!: Table<LocalPatient, string>;
@@ -108,6 +121,7 @@ export class ClinicDatabase extends Dexie {
   slots!: Table<LocalSlot, string>;
   products!: Table<LocalProduct, string>;
   profile!: Table<LocalProfile, string>;
+  cartItems!: Table<LocalCartItem, string>;
 
   constructor() {
     super("ClinicDatabase");
@@ -186,6 +200,19 @@ export class ClinicDatabase extends Dexie {
         profile: "userId",
       })
       .upgrade((tx) => tx.table("products").clear().then(() => undefined));
+
+    // v7: adds the `cartItems` table so the shopping cart survives reload /
+    // direct entry (hydrated on app start). Additive — keyed by productId,
+    // also indexed by addedAt to restore the original cart order.
+    this.version(7).stores({
+      appointments: "id, date, status, doctorId, patientId",
+      patients: "id, name",
+      doctors: "id",
+      slots: "id, doctorId, status, startsAt",
+      products: "id, isActive, categoryId",
+      profile: "userId",
+      cartItems: "productId, addedAt",
+    });
   }
 }
 

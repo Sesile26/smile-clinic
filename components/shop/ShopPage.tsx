@@ -13,7 +13,7 @@ import {
   ShopApiError,
 } from "@/lib/shop-client";
 import type { ApiProduct } from "@/lib/shop-types";
-import { CartProvider, useCart } from "./CartContext";
+import { useCart } from "./CartContext";
 import { ProductCard } from "./ProductCard";
 import { CartDrawer } from "./CartDrawer";
 import { ProductFormModal, type ProductFormValues } from "./ProductFormModal";
@@ -31,11 +31,9 @@ import {
 } from "./StatePanels";
 
 export function ShopPage() {
-  return (
-    <CartProvider>
-      <ShopInner />
-    </CartProvider>
-  );
+  // CartProvider lives in the root layout — the cart must survive navigating
+  // away from /shop and back, so it can't be scoped to this page.
+  return <ShopInner />;
 }
 
 function ShopInner() {

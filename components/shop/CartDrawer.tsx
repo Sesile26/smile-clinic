@@ -38,7 +38,18 @@ interface PlacedOrder {
  * only as a preview. Nova Poshta city/warehouse come from the server proxy.
  */
 export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
-  const { items, count, subtotal, inc, dec, remove, clear } = useCart();
+  const {
+    items,
+    count,
+    subtotal,
+    inc,
+    dec,
+    remove,
+    clear,
+    hydrating,
+    notice,
+    dismissNotice,
+  } = useCart();
   const { status } = useSession();
   const authed = status === "authenticated"; // ordering requires sign-in
   const loginModal = useLoginModal();
@@ -231,9 +242,29 @@ export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
         <div className="flex-1 overflow-y-auto px-5 py-5">
           {!online && step !== "done" && <OfflineNotice className="mb-4" />}
 
-          {step === "cart" && (
-            <CartStep items={items} onInc={inc} onDec={dec} onRemove={remove} />
+          {step === "cart" && notice && (
+            <div
+              role="status"
+              className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800"
+            >
+              <span>{notice}</span>
+              <button
+                type="button"
+                onClick={dismissNotice}
+                aria-label="Сховати повідомлення"
+                className="shrink-0 rounded p-0.5 text-amber-600 transition-colors hover:text-amber-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+              >
+                <IcoClose size={16} />
+              </button>
+            </div>
           )}
+
+          {step === "cart" &&
+            (hydrating ? (
+              <CartSkeleton />
+            ) : (
+              <CartStep items={items} onInc={inc} onDec={dec} onRemove={remove} />
+            ))}
 
           {step === "checkout" && (
             <form id="checkout-form" onSubmit={handleSubmit} noValidate>
@@ -378,6 +409,33 @@ export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
 }
 
 // ─── Cart step ───────────────────────────────────────────────────────────────
+
+/** Shown while the cart hydrates from Dexie — prevents an empty→full flash. */
+function CartSkeleton() {
+  return (
+    <ul
+      role="status"
+      aria-busy="true"
+      aria-live="polite"
+      className="flex flex-col gap-3"
+    >
+      <span className="sr-only">Завантаження кошика…</span>
+      {Array.from({ length: 2 }).map((_, i) => (
+        <li
+          key={i}
+          className="flex gap-3 rounded-xl border border-[color:var(--line)] bg-white p-3"
+        >
+          <div className="h-14 w-14 shrink-0 animate-pulse rounded-lg bg-bone/60" />
+          <div className="flex-1 space-y-2 py-1">
+            <div className="h-4 w-2/3 animate-pulse rounded bg-bone/60" />
+            <div className="h-3 w-1/3 animate-pulse rounded bg-bone/40" />
+            <div className="h-7 w-24 animate-pulse rounded-full bg-bone/50" />
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 function CartStep({
   items,
