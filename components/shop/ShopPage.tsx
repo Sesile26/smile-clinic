@@ -247,7 +247,9 @@ function ShopInner() {
             <button
               type="button"
               onClick={() => setCatsOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-full border border-[color:var(--line-2)] bg-white px-4 py-2 text-sm font-medium text-navy-900 transition-colors hover:border-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint"
+              disabled={!online}
+              title={!online ? "Керування доступне лише онлайн" : undefined}
+              className="inline-flex items-center gap-1.5 rounded-full border border-[color:var(--line-2)] bg-white px-4 py-2 text-sm font-medium text-navy-900 transition-colors hover:border-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint disabled:cursor-not-allowed disabled:opacity-50"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 7h18M3 12h18M3 17h18" /></svg>
               Категорії
@@ -332,6 +334,7 @@ function ShopInner() {
           categories={cats.categories}
           uncategorizedCount={uncategorizedCount}
           state={cats.state}
+          online={online}
           onAdd={cats.add}
           onRename={cats.rename}
           onRemove={cats.remove}

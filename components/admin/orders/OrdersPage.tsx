@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/cn";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { displayM } from "@/lib/typography";
 import { Container } from "@/components/ui/Container";
 import { formatUAH } from "@/components/shop/data";
@@ -38,6 +39,9 @@ export function OrdersPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  // Orders aren't mirrored (NetworkOnly) — the page is online-only. If the link
+  // drops after load, status changes are disabled (no offline write queue).
+  const { isOnline: online } = useOnlineStatus();
 
   // ── URL is the source of truth for pagination ─────────────────────────────
   const rawPage = Number(searchParams.get("page"));
@@ -181,6 +185,7 @@ export function OrdersPage() {
     });
 
   const changeStatus = async (id: string, status: AdminOrderStatus) => {
+    if (!online) return; // online-only; no offline write queue
     setBusyId(id);
     setActionError(null);
     try {
@@ -303,6 +308,19 @@ export function OrdersPage() {
         </div>
       </div>
 
+      {!online && (
+        <div
+          role="status"
+          className="mb-4 flex items-center gap-2.5 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2.5 text-sm text-yellow-800"
+        >
+          <span
+            aria-hidden="true"
+            className="inline-block h-2 w-2 shrink-0 rounded-full bg-yellow-500"
+          />
+          Ви офлайн. Зміна статусів недоступна — лише перегляд.
+        </div>
+      )}
+
       {actionError && (
         <div
           role="alert"
@@ -332,6 +350,7 @@ export function OrdersPage() {
             orders={orders}
             expanded={expanded}
             busyId={busyId}
+            online={online}
             onToggle={toggle}
             onStatus={changeStatus}
           />
@@ -339,6 +358,7 @@ export function OrdersPage() {
             orders={orders}
             expanded={expanded}
             busyId={busyId}
+            online={online}
             onToggle={toggle}
             onStatus={changeStatus}
           />
@@ -647,13 +667,15 @@ interface ListProps {
   orders: AdminOrder[];
   expanded: Set<string>;
   busyId: string | null;
+  /** Offline → status changes are disabled. */
+  online: boolean;
   onToggle: (id: string) => void;
   onStatus: (id: string, s: AdminOrderStatus) => void;
 }
 
 // ─── Desktop table ───────────────────────────────────────────────────────────
 
-function DesktopTable({ orders, expanded, busyId, onToggle, onStatus }: ListProps) {
+function DesktopTable({ orders, expanded, busyId, online, onToggle, onStatus }: ListProps) {
   return (
     <div className="hidden overflow-hidden rounded-xl border border-[color:var(--line)] bg-white md:block">
       <table className="w-full border-collapse text-sm">
@@ -710,7 +732,7 @@ function DesktopTable({ orders, expanded, busyId, onToggle, onStatus }: ListProp
                   <td className="px-3 py-3">
                     <StatusSelect
                       value={o.status}
-                      disabled={busyId === o.id}
+                      disabled={busyId === o.id || !online}
                       onChange={(s) => onStatus(o.id, s)}
                     />
                   </td>
@@ -740,7 +762,7 @@ function DesktopTable({ orders, expanded, busyId, onToggle, onStatus }: ListProp
 
 // ─── Mobile cards ────────────────────────────────────────────────────────────
 
-function MobileCards({ orders, expanded, busyId, onToggle, onStatus }: ListProps) {
+function MobileCards({ orders, expanded, busyId, online, onToggle, onStatus }: ListProps) {
   return (
     <ul className="flex flex-col gap-3 md:hidden">
       {orders.map((o) => {
@@ -792,7 +814,7 @@ function MobileCards({ orders, expanded, busyId, onToggle, onStatus }: ListProps
               <span className="text-xs text-navy-400">Статус:</span>
               <StatusSelect
                 value={o.status}
-                disabled={busyId === o.id}
+                disabled={busyId === o.id || !online}
                 onChange={(s) => onStatus(o.id, s)}
               />
             </div>

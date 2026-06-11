@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { btnBase, btnGhost, btnMint } from "@/lib/buttons";
 import { IcoClose } from "@/components/icons";
+import { OfflineNotice } from "./StatePanels";
 import type {
   CatLoadState,
   MutationResult,
@@ -21,6 +22,8 @@ interface CategoriesModalProps {
   categories: ShopCategory[];
   uncategorizedCount: number;
   state: CatLoadState;
+  /** Offline → catalog management is read-only; mutations are disabled. */
+  online: boolean;
   onAdd: (name: string) => Promise<MutationResult>;
   onRename: (id: string, name: string) => Promise<MutationResult>;
   onRemove: (id: string) => Promise<MutationResult>;
@@ -29,19 +32,20 @@ interface CategoriesModalProps {
 }
 
 /**
- * Manage product categories (ADMIN/STAFF only). MOCK ONLY — every action goes
- * through the parent's useShopCategories store; persistence is wired with the
- * API later. a11y mirrors ProductFormModal: role=dialog + aria-modal, scroll
- * lock, Escape, focus trap, focus restore.
+ * Manage product categories (ADMIN/STAFF only). Backed by /api/categories via
+ * the parent's useShopCategories store. a11y mirrors ProductFormModal:
+ * role=dialog + aria-modal, scroll lock, Escape, focus trap, focus restore.
  *
  * Sub-flows: add (validated input), inline rename, and delete with a
  * confirmation that warns when a category still holds products and offers to
- * move them to "Без категорії".
+ * move them to "Без категорії". Offline the list stays viewable but every
+ * mutation is disabled (no offline write queue — mutations are online-only).
  */
 export function CategoriesModal({
   categories,
   uncategorizedCount,
   state,
+  online,
   onAdd,
   onRename,
   onRemove,
@@ -115,7 +119,7 @@ export function CategoriesModal({
 
   const submitAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (busy) return;
+    if (busy || !online) return;
     setBusy(true);
     const res = await onAdd(newName);
     setBusy(false);
@@ -135,7 +139,7 @@ export function CategoriesModal({
     setEditError(null);
   };
   const submitEdit = async (id: string) => {
-    if (busy) return;
+    if (busy || !online) return;
     setBusy(true);
     const res = await onRename(id, editName);
     setBusy(false);
@@ -148,7 +152,7 @@ export function CategoriesModal({
   };
 
   const confirmRemove = async (id: string) => {
-    if (busy) return;
+    if (busy || !online) return;
     setBusy(true);
     const res = await onRemove(id);
     setBusy(false);
@@ -194,6 +198,10 @@ export function CategoriesModal({
         </div>
 
         <div className="flex flex-col gap-4 overflow-y-auto px-6 py-5">
+          {!online && (
+            <OfflineNotice message="Ви офлайн. Категорії показано лише для перегляду — зміни доступні лише онлайн." />
+          )}
+
           {/* Add new category */}
           <form onSubmit={submitAdd} noValidate className="flex flex-col gap-1.5">
             <label htmlFor="cat-new" className="sr-only">
@@ -216,7 +224,7 @@ export function CategoriesModal({
               />
               <button
                 type="submit"
-                disabled={state !== "ready" || busy || !newName.trim()}
+                disabled={state !== "ready" || busy || !online || !newName.trim()}
                 className={cn(
                   btnBase,
                   btnMint,
@@ -274,6 +282,7 @@ export function CategoriesModal({
                   ) : (
                     <Row
                       category={c}
+                      disabled={!online}
                       onEdit={() => startEdit(c)}
                       onDelete={() => {
                         setEditingId(null);
@@ -314,10 +323,13 @@ export function CategoriesModal({
 
 function Row({
   category,
+  disabled,
   onEdit,
   onDelete,
 }: {
   category: ShopCategory;
+  /** Offline → management actions are disabled. */
+  disabled?: boolean;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -333,12 +345,14 @@ function Row({
         <IconBtn
           label={`Перейменувати «${category.name}»`}
           onClick={onEdit}
+          disabled={disabled}
           path="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"
         />
         <IconBtn
           label={`Видалити «${category.name}»`}
           onClick={onDelete}
           danger
+          disabled={disabled}
           path="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"
         />
       </div>
@@ -479,20 +493,23 @@ function IconBtn({
   onClick,
   path,
   danger,
+  disabled,
 }: {
   label: string;
   onClick: () => void;
   path: string;
   danger?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-label={label}
       title={label}
       className={cn(
-        "grid h-8 w-8 place-items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2",
+        "grid h-8 w-8 place-items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-40",
         danger
           ? "text-red-600 hover:bg-red-50 focus-visible:ring-red-400"
           : "text-navy-700 hover:bg-cream focus-visible:ring-mint",

@@ -114,8 +114,15 @@ export function ErrorBanner({ onRetry }: { onRetry?: () => void }) {
   );
 }
 
-/** Offline notice — ordering is online-only. */
-export function OfflineNotice({ className }: { className?: string }) {
+/** Offline notice — the catalog/cart stay viewable but writes are online-only.
+ *  `message` overrides the default (e.g. category management vs. checkout). */
+export function OfflineNotice({
+  className,
+  message,
+}: {
+  className?: string;
+  message?: React.ReactNode;
+}) {
   return (
     <div
       role="status"
@@ -130,11 +137,15 @@ export function OfflineNotice({ className }: { className?: string }) {
         className="inline-block h-2 w-2 shrink-0 rounded-full bg-yellow-500"
       />
       <span>
-        Ви офлайн. Каталог доступний лише для перегляду —{" "}
-        <strong className="font-medium">
-          оформлення доступне лише онлайн
-        </strong>
-        .
+        {message ?? (
+          <>
+            Ви офлайн. Каталог доступний лише для перегляду —{" "}
+            <strong className="font-medium">
+              оформлення доступне лише онлайн
+            </strong>
+            .
+          </>
+        )}
       </span>
     </div>
   );
