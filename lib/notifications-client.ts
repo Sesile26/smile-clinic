@@ -5,6 +5,7 @@
 
 export type NotificationType =
   | "appointment_status"
+  | "appointment_new"
   | "order_new"
   | "order_status";
 

@@ -6,7 +6,10 @@ import {
 } from "@/lib/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import { apiError, getActor, isStaff } from "@/lib/booking-server";
-import { createNotification } from "@/lib/notifications";
+import {
+  createNotification,
+  notifyManagersOfNewBooking,
+} from "@/lib/notifications";
 import { rateLimit } from "@/lib/rate-limit";
 
 /**
@@ -191,11 +194,30 @@ export async function POST(request: Request) {
         throw new BookingError(409, "slot_taken", "Слот уже зайнято");
       }
 
-      return { appointmentId: appointment.id, startsAt: slot.startsAt.toISOString() };
+      return {
+        appointmentId: appointment.id,
+        startsAt: slot.startsAt.toISOString(),
+        doctorId: appointment.doctorId,
+        patientId,
+        date: appointment.date,
+      };
     });
 
+    // Notify the owning doctor + staff/admin ONLY for bookings made for TODAY
+    // (clinic TZ). Fired AFTER the commit, best-effort — a notification failure
+    // must not fail the booking, and a rolled-back tx never reaches here.
+    void notifyManagersOfNewBooking({
+      doctorId: result.doctorId,
+      patientId: result.patientId,
+      date: result.date,
+    }).catch((e) => console.error("notify (new booking) failed", e));
+
     return NextResponse.json(
-      { ok: true, ...result },
+      {
+        ok: true,
+        appointmentId: result.appointmentId,
+        startsAt: result.startsAt,
+      },
       { status: 201 },
     );
   } catch (err) {

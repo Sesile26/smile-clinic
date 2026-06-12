@@ -174,3 +174,63 @@ export async function notifyManagersOfCancellation(input: {
     ),
   );
 }
+
+/**
+ * Mirror of the cancellation notice for NEW bookings — but ONLY for visits
+ * booked for TODAY (clinic timezone). Today's bookings need an immediate
+ * reaction (confirm/reject before the patient shows up); future bookings just
+ * surface in the pending list, so they get no instant push.
+ *
+ * Recipients: the slot's owning DOCTOR (if their account is linked via
+ * Doctor.userId) AND every STAFF/ADMIN, DEDUPED — a doctor who is also
+ * staff/admin gets a single notification, not two.
+ *
+ * Call AFTER the booking transaction commits (so a slot-race / limit / rate
+ * limit failure never produces a phantom notification). Best-effort.
+ */
+export async function notifyManagersOfNewBooking(input: {
+  doctorId: string;
+  patientId: string;
+  date: Date;
+}): Promise<void> {
+  // Future bookings: no instant push (they appear in the pending list). Check
+  // first, before any queries, so we do zero work off the hot path.
+  const isToday = dayKeyFmt.format(input.date) === dayKeyFmt.format(new Date());
+  if (!isToday) return;
+
+  const [doctor, staff, patient] = await Promise.all([
+    prisma.doctor.findUnique({
+      where: { id: input.doctorId },
+      select: { userId: true },
+    }),
+    prisma.user.findMany({
+      where: { role: { in: [Role.STAFF, Role.ADMIN] } },
+      select: { id: true },
+    }),
+    prisma.patient.findUnique({
+      where: { id: input.patientId },
+      select: { name: true },
+    }),
+  ]);
+
+  const recipients = new Set<string>();
+  if (doctor?.userId) recipients.add(doctor.userId); // owner doctor, if linked
+  for (const u of staff) recipients.add(u.id); // staff/admin
+  if (recipients.size === 0) return;
+
+  const patientName = patient?.name ?? "Пацієнт";
+  const title = "Новий запис на сьогодні";
+  const body = `Новий запис на сьогодні, ${timeFmt.format(input.date)} — ${patientName} (потребує підтвердження).`;
+
+  await Promise.all(
+    [...recipients].map((userId) =>
+      createNotification({
+        userId,
+        type: "appointment_new",
+        title,
+        body,
+        link: "/booking",
+      }),
+    ),
+  );
+}
