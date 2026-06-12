@@ -30,36 +30,15 @@ function CategoryGlyph({
   }
 }
 
-/** Low-stock threshold for the manager warehouse view (≤ this → amber). */
-const LOW_STOCK = 3;
-
-/** Manager-only exact stock line: red at 0, amber when low, navy otherwise. */
-function StockLine({ stock }: { stock: number }) {
-  const tone =
-    stock <= 0
-      ? "text-red-600"
-      : stock <= LOW_STOCK
-        ? "text-amber-600"
-        : "text-navy-700";
-  return (
-    <p className={cn("mt-3 text-xs font-medium tabular-nums", tone)}>
-      {stock <= 0 ? "Немає на складі" : `Залишилось: ${stock}`}
-    </p>
-  );
-}
-
 interface ProductCardProps {
   product: ApiProduct;
   /** Offline → catalog is read-only, add button disabled. */
   disabled?: boolean;
   inCartQty: number;
   onAdd: () => void;
-  /** STAFF/ADMIN (from session) → reveals manage actions. */
-  canManage: boolean;
-  onEdit: () => void;
-  onDelete: () => void;
-  /** A mutation for this card is in flight. */
-  busy?: boolean;
+  /** false → no add-to-cart button (e.g. STAFF/ADMIN viewing the storefront —
+   *  they don't buy; product management lives in /admin/products). Default true. */
+  purchasable?: boolean;
 }
 
 export function ProductCard({
@@ -67,18 +46,14 @@ export function ProductCard({
   disabled,
   inCartQty,
   onAdd,
-  canManage,
-  onEdit,
-  onDelete,
-  busy,
+  purchasable = true,
 }: ProductCardProps) {
   // Product photos may be arbitrary external URLs; plain <img> + onError
   // fallback avoids touching next.config remotePatterns.
   const [imgError, setImgError] = useState(false);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
-  // `inStock` is the only availability signal patients get; managers also have
-  // the exact `stock` number.
+  // `inStock` is the only availability signal a storefront card shows — never
+  // the exact count (that's staff-only, in the admin table).
   const outOfStock = !product.inStock;
   const addDisabled = disabled || outOfStock;
   const showImage = !!product.imageUrl && !imgError;
@@ -139,27 +114,22 @@ export function ProductCard({
           </p>
         )}
 
-        {/* Availability. Manager → EXACT count for stock scanning (amber when
-            low, red at 0). Buyer → status word only, never the number. */}
-        {canManage ? (
-          <StockLine stock={product.stock ?? 0} />
-        ) : (
-          <p
-            className={cn(
-              "mt-3 text-xs font-medium",
-              outOfStock ? "text-red-600" : "text-mint-600",
-            )}
-          >
-            {outOfStock ? "Немає в наявності" : "В наявності"}
-          </p>
-        )}
+        {/* Availability status only — never the exact number (storefront). */}
+        <p
+          className={cn(
+            "mt-3 text-xs font-medium",
+            outOfStock ? "text-red-600" : "text-mint-600",
+          )}
+        >
+          {outOfStock ? "Немає в наявності" : "В наявності"}
+        </p>
 
         <div className="mt-2 flex items-center justify-between gap-3">
           <span className="text-lg font-medium tabular-nums text-navy-900">
             {formatUAH(product.price)}
           </span>
-          {/* Buyers (PATIENT/guest) buy; managers don't — no add button. */}
-          {!canManage && (
+          {/* Buyers (PATIENT/guest) buy; STAFF/ADMIN don't — no add button. */}
+          {purchasable && (
             <button
               type="button"
               onClick={onAdd}
@@ -197,57 +167,6 @@ export function ProductCard({
             </button>
           )}
         </div>
-
-        {/* ── Manage actions (STAFF/ADMIN only; role from session) ─────────── */}
-        {canManage && (
-          <div className="mt-4 border-t border-[color:var(--line)] pt-3">
-            {confirmingDelete ? (
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs font-medium text-navy-700">
-                  Видалити товар?
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={onDelete}
-                    disabled={busy}
-                    className="rounded-full bg-red-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:opacity-50"
-                  >
-                    Так, видалити
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmingDelete(false)}
-                    className="rounded-full border border-[color:var(--line-2)] px-3 py-1.5 text-xs font-medium text-navy-700 transition-colors hover:border-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint"
-                  >
-                    Скасувати
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={onEdit}
-                  disabled={busy}
-                  className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-full border border-[color:var(--line-2)] px-3 py-2 text-xs font-medium text-navy-900 transition-colors hover:border-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint disabled:opacity-50"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
-                  Редагувати
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmingDelete(true)}
-                  disabled={busy}
-                  className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-full border border-[color:var(--line-2)] px-3 py-2 text-xs font-medium text-red-600 transition-colors hover:border-red-600 hover:bg-red-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:opacity-50"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
-                  Видалити
-                </button>
-              </div>
-            )}
-          </div>
-        )}
       </div>
     </article>
   );

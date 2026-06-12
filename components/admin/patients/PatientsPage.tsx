@@ -4,8 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { cn } from "@/lib/cn";
-import { displayM } from "@/lib/typography";
-import { Container } from "@/components/ui/Container";
 import { ShopApiError } from "@/lib/shop-client";
 import {
   getAdminPatients,
@@ -127,21 +125,7 @@ export function PatientsPage() {
   const hasSearch = urlQ.trim() !== "";
 
   return (
-    <Container className="py-10 sm:py-14">
-      <div className="mb-6">
-        <span className="mb-2 inline-flex items-center gap-2 rounded-full bg-mint-100 px-3 py-1 text-xs font-medium text-mint-600">
-          {isDoctor ? "Лікар · Пацієнти" : "Адмін · Пацієнти"}
-        </span>
-        <h1 className={cn(displayM, "text-navy-900")}>
-          Пацієнти <em className="italic text-mint-600">клініки</em>
-        </h1>
-        <p className="mt-2 max-w-[52ch] text-[15px] leading-[1.55] text-navy-400">
-          {isDoctor
-            ? "Ваші пацієнти та історія їхніх візитів до вас."
-            : "Усі пацієнти клініки та історія їхніх записів."}
-        </p>
-      </div>
-
+    <>
       {selected ? (
         <PatientDetail
           patient={selected}
@@ -220,7 +204,7 @@ export function PatientsPage() {
           )}
         </>
       )}
-    </Container>
+    </>
   );
 }
 

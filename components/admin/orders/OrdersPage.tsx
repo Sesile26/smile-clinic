@@ -4,8 +4,6 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/cn";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
-import { displayM } from "@/lib/typography";
-import { Container } from "@/components/ui/Container";
 import { formatUAH } from "@/components/shop/data";
 import {
   getAdminOrders,
@@ -206,20 +204,7 @@ export function OrdersPage() {
   const rangeEnd = Math.min(page * pageSize, total);
 
   return (
-    <Container className="py-10 sm:py-14">
-      {/* Header */}
-      <div className="mb-6">
-        <span className="mb-2 inline-flex items-center gap-2 rounded-full bg-mint-100 px-3 py-1 text-xs font-medium text-mint-600">
-          Адмін · Магазин
-        </span>
-        <h1 className={cn(displayM, "text-navy-900")}>
-          Замовлення <em className="italic text-mint-600">магазину</em>
-        </h1>
-        <p className="mt-2 max-w-[52ch] text-[15px] leading-[1.55] text-navy-400">
-          Перегляд і керування замовленнями магазину.
-        </p>
-      </div>
-
+    <>
       {/* Toolbar: search + date range + status filter */}
       <div className="mb-5 flex flex-col gap-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
@@ -375,7 +360,7 @@ export function OrdersPage() {
           />
         </>
       )}
-    </Container>
+    </>
   );
 }
 

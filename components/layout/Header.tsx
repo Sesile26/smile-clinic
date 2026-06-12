@@ -61,7 +61,10 @@ function AvatarMenu({ user, role }: AvatarMenuProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const isStaff = role === "STAFF" || role === "ADMIN";
+  // STAFF/ADMIN/DOCTOR see the admin panel. A DOCTOR goes straight to their
+  // only tab (/admin/patients) — bare /admin is staff-only in proxy.ts.
+  const isManager = role === "STAFF" || role === "ADMIN" || role === "DOCTOR";
+  const adminHref = role === "DOCTOR" ? "/admin/patients" : "/admin";
 
   // Click-outside + Escape close. Listeners are only attached while open
   // to avoid the "clicked trigger to open immediately closes" race.
@@ -165,14 +168,14 @@ function AvatarMenu({ user, role }: AvatarMenuProps) {
           >
             Мої записи
           </Link>
-          {isStaff && (
+          {isManager && (
             <Link
-              href="/admin/orders"
+              href={adminHref}
               role="menuitem"
               onClick={() => setOpen(false)}
               className="block w-full border-b border-[color:var(--line)] px-4 py-2.5 text-left text-sm font-medium text-navy-900 transition-colors duration-150 hover:bg-cream focus:bg-cream focus:outline-none"
             >
-              Замовлення магазину
+              Адмін-панель
             </Link>
           )}
           <button
