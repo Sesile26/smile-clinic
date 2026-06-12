@@ -50,6 +50,20 @@ export default auth((req) => {
     return NextResponse.redirect(loginUrl);
   }
 
+  // /admin (root) → first tab available to the role (reached only when logged
+  // in; guests handled above). Returns for EVERY role so the staff-only check
+  // below never bounces a DOCTOR home from the bare /admin entry point.
+  if (nextUrl.pathname === "/admin" || nextUrl.pathname === "/admin/") {
+    const role = session?.user?.role;
+    if (role === "ADMIN" || role === "STAFF") {
+      return NextResponse.redirect(new URL("/admin/orders", req.url));
+    }
+    if (role === "DOCTOR") {
+      return NextResponse.redirect(new URL("/admin/patients", req.url));
+    }
+    return NextResponse.redirect(new URL("/", req.url)); // patient
+  }
+
   // Manager zone (e.g. /admin/patients): STAFF/ADMIN/DOCTOR allowed; a PATIENT
   // → home. Server APIs re-scope a doctor to their own patients.
   if (isManagerRoute) {
