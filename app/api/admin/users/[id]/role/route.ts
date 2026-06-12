@@ -15,7 +15,7 @@ import type { AdminUser, Linkage } from "@/lib/admin-users";
  *     inside the transaction, so two concurrent demotions can't both pass the
  *     "count > 1" check and leave zero admins.
  *  3. Grant DOCTOR: body has doctorId (an existing Doctor with no account) OR
- *     newDoctor {name, specialty}. In one transaction: role=DOCTOR AND
+ *     newDoctor {name, specialtyId|null}. In one transaction: role=DOCTOR AND
  *     Doctor.userId=this user. Linking a doctor already tied to another account
  *     fails clearly. Any doctor previously linked to this user is unlinked first.
  *  4. Remove DOCTOR: in one transaction role=new AND Doctor.userId=null — the
@@ -48,16 +48,22 @@ const SELECT = {
   role: true,
   createdAt: true,
   patient: { select: { name: true } },
-  doctor: { select: { id: true, name: true, specialty: true } },
+  doctor: { select: { id: true, name: true, specialty: { select: { id: true, name: true } } } },
 } as const;
 
 type UserRow = {
   patient: { name: string } | null;
-  doctor: { id: string; name: string; specialty: string } | null;
+  doctor: { id: string; name: string; specialty: { id: string; name: string } | null } | null;
 };
 function toLinkage(u: UserRow): Linkage {
   if (u.doctor) {
-    return { type: "doctor", id: u.doctor.id, name: u.doctor.name, specialty: u.doctor.specialty };
+    return {
+      type: "doctor",
+      id: u.doctor.id,
+      name: u.doctor.name,
+      specialtyId: u.doctor.specialty?.id ?? null,
+      specialtyName: u.doctor.specialty?.name ?? null,
+    };
   }
   if (u.patient) return { type: "patient", name: u.patient.name };
   return null;
@@ -89,7 +95,7 @@ export async function PATCH(
   const b = (body ?? {}) as {
     role?: unknown;
     doctorId?: unknown;
-    newDoctor?: { name?: unknown; specialty?: unknown };
+    newDoctor?: { name?: unknown; specialtyId?: unknown };
   };
   const newRole = b.role;
   if (typeof newRole !== "string" || !(newRole in ROLE_LABEL)) {
@@ -97,18 +103,15 @@ export async function PATCH(
   }
   const role = newRole as Role;
 
-  // Validate DOCTOR binding inputs up front.
+  // Validate DOCTOR binding inputs up front. A new doctor needs a name; the
+  // specialty is chosen from the directory by id (or null = "Без спеціальності").
   let bindDoctorId: string | null = null;
-  let newDoctor: { name: string; specialty: string } | null = null;
+  let newDoctor: { name: string; specialtyId: string | null } | null = null;
   if (role === Role.DOCTOR) {
     const hasExisting = typeof b.doctorId === "string" && b.doctorId.trim() !== "";
     const nd = b.newDoctor;
     const hasNew =
-      !!nd &&
-      typeof nd.name === "string" &&
-      nd.name.trim().length >= 2 &&
-      typeof nd.specialty === "string" &&
-      nd.specialty.trim().length >= 2;
+      !!nd && typeof nd.name === "string" && nd.name.trim().length >= 2;
     if (hasExisting === hasNew) {
       return shopError(
         400,
@@ -116,8 +119,15 @@ export async function PATCH(
         "Для ролі «Лікар» вкажіть наявного лікаря АБО створіть нового",
       );
     }
-    if (hasExisting) bindDoctorId = (b.doctorId as string).trim();
-    else newDoctor = { name: (nd!.name as string).trim(), specialty: (nd!.specialty as string).trim() };
+    if (hasExisting) {
+      bindDoctorId = (b.doctorId as string).trim();
+    } else {
+      const specialtyId =
+        typeof nd!.specialtyId === "string" && nd!.specialtyId.trim() !== ""
+          ? nd!.specialtyId.trim()
+          : null;
+      newDoctor = { name: (nd!.name as string).trim(), specialtyId };
+    }
   }
 
   try {
@@ -160,7 +170,11 @@ export async function PATCH(
           }
         } else if (newDoctor) {
           await tx.doctor.create({
-            data: { name: newDoctor.name, specialty: newDoctor.specialty, userId: id },
+            data: {
+              name: newDoctor.name,
+              specialtyId: newDoctor.specialtyId,
+              userId: id,
+            },
           });
         }
       } else if (target.role === Role.DOCTOR) {
@@ -188,12 +202,15 @@ export async function PATCH(
     if (err instanceof RuleError) {
       return shopError(err.status, err.code, err.message);
     }
-    // Unique violation on Doctor.userId, just in case.
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002"
-    ) {
-      return shopError(409, "conflict", "Лікаря вже привʼязано до іншого акаунта");
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      // Unique violation on Doctor.userId, just in case.
+      if (err.code === "P2002") {
+        return shopError(409, "conflict", "Лікаря вже привʼязано до іншого акаунта");
+      }
+      // FK violation — the chosen specialty no longer exists.
+      if (err.code === "P2003") {
+        return shopError(400, "validation", "Обрану спеціальність не знайдено");
+      }
     }
     console.error("PATCH /api/admin/users/[id]/role failed", err);
     return shopError(500, "server", "Не вдалося змінити роль");

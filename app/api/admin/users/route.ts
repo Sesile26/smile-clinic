@@ -17,14 +17,15 @@ const VALID_ROLE = new Set<string>(Object.values(Role));
 
 function toLinkage(u: {
   patient: { name: string } | null;
-  doctor: { id: string; name: string; specialty: string } | null;
+  doctor: { id: string; name: string; specialty: { id: string; name: string } | null } | null;
 }): Linkage {
   if (u.doctor) {
     return {
       type: "doctor",
       id: u.doctor.id,
       name: u.doctor.name,
-      specialty: u.doctor.specialty,
+      specialtyId: u.doctor.specialty?.id ?? null,
+      specialtyName: u.doctor.specialty?.name ?? null,
     };
   }
   if (u.patient) return { type: "patient", name: u.patient.name };
@@ -69,7 +70,7 @@ export async function GET(request: Request) {
           role: true,
           createdAt: true,
           patient: { select: { name: true } },
-          doctor: { select: { id: true, name: true, specialty: true } },
+          doctor: { select: { id: true, name: true, specialty: { select: { id: true, name: true } } } },
         },
       }),
       prisma.user.count({ where }),

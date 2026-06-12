@@ -23,9 +23,20 @@ export async function GET(request: Request) {
     const rows = await prisma.doctor.findMany({
       where: unlinked ? { userId: null } : undefined,
       orderBy: { name: "asc" },
-      select: { id: true, name: true, specialty: true },
+      select: {
+        id: true,
+        name: true,
+        specialty: { select: { id: true, name: true } },
+      },
     });
-    return NextResponse.json<ApiDoctor[]>(rows);
+    return NextResponse.json<ApiDoctor[]>(
+      rows.map((d) => ({
+        id: d.id,
+        name: d.name,
+        specialtyId: d.specialty?.id ?? null,
+        specialtyName: d.specialty?.name ?? null,
+      })),
+    );
   } catch (err) {
     console.error("GET /api/doctors failed", err);
     return apiError(500, "server", "Не вдалося завантажити лікарів");

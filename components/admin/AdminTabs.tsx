@@ -19,6 +19,7 @@ const TABS: { href: string; label: string; roles: Role[] }[] = [
   { href: "/admin/appointments", label: "Записи", roles: ["ADMIN", "STAFF", "DOCTOR"] },
   { href: "/admin/products", label: "Товари", roles: ["ADMIN", "STAFF"] },
   { href: "/admin/categories", label: "Категорії", roles: ["ADMIN", "STAFF"] },
+  { href: "/admin/specialties", label: "Спеціальності", roles: ["ADMIN", "STAFF"] },
   { href: "/admin/users", label: "Користувачі", roles: ["ADMIN"] },
 ];
 

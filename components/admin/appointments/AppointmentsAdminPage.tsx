@@ -374,7 +374,9 @@ export function AppointmentsAdminPage() {
                     </td>
                     <td className="px-3 py-3 text-navy-700">
                       {a.doctorName}
-                      <span className="text-navy-400"> · {a.doctorSpecialty}</span>
+                      {a.doctorSpecialty && (
+                        <span className="text-navy-400"> · {a.doctorSpecialty}</span>
+                      )}
                     </td>
                     <td className="px-3 py-3">
                       <StatusBadge status={a.status} />
@@ -406,7 +408,9 @@ export function AppointmentsAdminPage() {
                   <div className="text-xs tabular-nums text-navy-400">{a.patientPhone ?? "—"}</div>
                   <div className="mt-1 text-navy-700">
                     {a.doctorName}
-                    <span className="text-navy-400"> · {a.doctorSpecialty}</span>
+                    {a.doctorSpecialty && (
+                      <span className="text-navy-400"> · {a.doctorSpecialty}</span>
+                    )}
                   </div>
                 </div>
                 <div className="mt-3 border-t border-[color:var(--line)] pt-3">

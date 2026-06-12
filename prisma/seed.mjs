@@ -57,12 +57,23 @@ async function main() {
   const q = (text, params) => client.query(text, params);
 
   try {
+    // ── Specialties (reference table) ────────────────────────────────────────
+    // Спеціальності тепер окремий довідник Specialty; ідемпотентно за name.
+    for (const name of [...new Set(DOCTORS.map((d) => d.specialty))]) {
+      await q(
+        `INSERT INTO "Specialty" (id, name, "createdAt", "updatedAt")
+         VALUES (gen_random_uuid()::text, $1, now(), now())
+         ON CONFLICT (name) DO NOTHING`,
+        [name],
+      );
+    }
+
     // ── Doctors ────────────────────────────────────────────────────────────
     for (const d of DOCTORS) {
       await q(
-        `INSERT INTO "Doctor" (id, name, specialty, "createdAt")
-         VALUES ($1, $2, $3, now())
-         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, specialty = EXCLUDED.specialty`,
+        `INSERT INTO "Doctor" (id, name, "specialtyId", "createdAt")
+         VALUES ($1, $2, (SELECT id FROM "Specialty" WHERE name = $3), now())
+         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, "specialtyId" = EXCLUDED."specialtyId"`,
         [d.id, d.name, d.specialty],
       );
     }

@@ -67,15 +67,21 @@ export function BookingView({ today, online }: BookingViewProps) {
 
   const { doctors, state: doctorsState } = useDoctors(online);
 
-  const specialties = useMemo(
-    () => [...new Set(doctors.map((d) => d.specialty))],
-    [doctors],
-  );
+  // Unique {id, name} from the roster — by specialtyId, name via relation. Only
+  // specialties that actually have a doctor appear (rename shows immediately on
+  // the next roster fetch). Doctors with no specialty surface under "Усі".
+  const specialties = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const d of doctors) {
+      if (d.specialtyId) seen.set(d.specialtyId, d.specialtyName ?? d.specialtyId);
+    }
+    return [...seen.entries()].map(([id, name]) => ({ id, name }));
+  }, [doctors]);
   const visibleDoctors = useMemo(
     () =>
       specialty === "all"
         ? doctors
-        : doctors.filter((d) => d.specialty === specialty),
+        : doctors.filter((d) => d.specialtyId === specialty),
     [doctors, specialty],
   );
 
@@ -204,7 +210,7 @@ export function BookingView({ today, online }: BookingViewProps) {
           onChange={onSpecialtyChange}
           options={[
             { value: "all", label: "Усі спеціальності" },
-            ...specialties.map((s) => ({ value: s, label: s })),
+            ...specialties.map((s) => ({ value: s.id, label: s.name })),
           ]}
         />
         <Select
@@ -316,9 +322,11 @@ function OfflinePatientPanel({ today }: { today: Date }) {
                   <div className="text-sm font-medium text-navy-900">
                     {a.doctorName}
                   </div>
-                  <div className="text-xs text-navy-400">
-                    {a.doctorSpecialty}
-                  </div>
+                  {a.doctorSpecialty && (
+                    <div className="text-xs text-navy-400">
+                      {a.doctorSpecialty}
+                    </div>
+                  )}
                 </div>
                 <div className="text-right text-sm tabular-nums text-navy-700">
                   {formatDayLong(new Date(a.date))}

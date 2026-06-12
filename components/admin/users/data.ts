@@ -31,5 +31,7 @@ export function formatDate(iso: string): string {
 export function linkageLabel(l: Linkage): string {
   if (!l) return "—";
   if (l.type === "patient") return `Пацієнт: ${l.name}`;
-  return `Лікар: ${l.name} · ${l.specialty}`;
+  return l.specialtyName
+    ? `Лікар: ${l.name} · ${l.specialtyName}`
+    : `Лікар: ${l.name}`;
 }

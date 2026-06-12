@@ -36,7 +36,8 @@ export type SlotStatus = "off" | "working" | "booked";
 export interface Doctor {
   id: string;
   name: string;
-  specialty: string;
+  specialtyId: string | null;
+  specialtyName: string | null;
 }
 
 export interface DaySlots {

@@ -75,12 +75,18 @@ async function main() {
         role: Role.DOCTOR,
       },
     });
+    // Спеціальність — окремий довідник Specialty; upsert за унікальним name.
+    const therapy = await prisma.specialty.upsert({
+      where: { name: "Терапевтична стоматологія" },
+      update: {},
+      create: { name: "Терапевтична стоматологія" },
+    });
     const doctor = await prisma.doctor.upsert({
       where: { userId: doctorUser.id },
-      update: { name: "Наталія Лисенко", specialty: "Терапевтична стоматологія" },
+      update: { name: "Наталія Лисенко", specialtyId: therapy.id },
       create: {
         name: "Наталія Лисенко",
-        specialty: "Терапевтична стоматологія",
+        specialtyId: therapy.id,
         userId: doctorUser.id,
       },
     });
@@ -121,7 +127,7 @@ async function main() {
       {
         role: "DOCTOR",
         email: doctorUser.email,
-        linked: `${doctor.name} · ${doctor.specialty}`,
+        linked: `${doctor.name} · ${therapy.name}`,
       },
       ...patientUsers.map((u) => ({ role: "PATIENT", email: u.email, linked: u.name })),
     ]);

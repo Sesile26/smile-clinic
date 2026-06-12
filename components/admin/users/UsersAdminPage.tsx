@@ -12,16 +12,21 @@ import {
   getAdminUsers,
   changeUserRole,
   getUnlinkedDoctors,
+  updateDoctorSpecialty,
   USERS_DEFAULT_PAGE_SIZE,
   USERS_PAGE_SIZES,
   type AdminUser,
   type AdminUsersPage,
   type AdminUsersQuery,
   type ChangeRoleInput,
+  type Linkage,
   type Role,
   type UnlinkedDoctor,
 } from "@/lib/admin-users";
 import { ROLE_META, ROLE_ORDER, formatDate, linkageLabel } from "./data";
+import { SpecialtySelect } from "@/components/admin/specialties/SpecialtySelect";
+import { NO_SPECIALTY_LABEL } from "@/components/admin/specialties/data";
+import { getSpecialties, type ApiSpecialty } from "@/lib/specialties";
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -128,6 +133,46 @@ export function UsersAdminPage() {
     setPending(null);
   }, []);
 
+  // Specialty directory — loaded once, shared by every DOCTOR row select AND the
+  // role-grant modal (no per-row / per-modal refetch).
+  const [specialties, setSpecialties] = useState<ApiSpecialty[] | null>(null);
+  useEffect(() => {
+    let active = true;
+    getSpecialties()
+      .then((s) => active && setSpecialties(s))
+      .catch(() => active && setSpecialties([]));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Transient error toast (specialty save) — auto-dismiss.
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 4000);
+    return () => window.clearTimeout(t);
+  }, [toast]);
+
+  // Patch a doctor row's specialty in place after a successful save.
+  const onSpecialtyChanged = useCallback(
+    (userId: string, specialtyId: string | null, specialtyName: string | null) => {
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              items: prev.items.map((u) =>
+                u.id === userId && u.linkage?.type === "doctor"
+                  ? { ...u, linkage: { ...u.linkage, specialtyId, specialtyName } }
+                  : u,
+              ),
+            }
+          : prev,
+      );
+    },
+    [],
+  );
+
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
@@ -208,7 +253,9 @@ export function UsersAdminPage() {
                       </td>
                       <td className="px-3 py-3 text-navy-400">{u.email ?? "—"}</td>
                       <td className="whitespace-nowrap px-3 py-3 text-navy-700">{formatDate(u.createdAt)}</td>
-                      <td className="px-3 py-3 text-navy-700">{linkageLabel(u.linkage)}</td>
+                      <td className="px-3 py-3 text-navy-700">
+                        <LinkageCell user={u} specialties={specialties} onChanged={onSpecialtyChanged} onError={setToast} />
+                      </td>
                       <td className="px-3 py-3">
                         <RoleSelect user={u} isSelf={isSelf} onPick={(to) => setPending({ user: u, to })} />
                       </td>
@@ -237,7 +284,7 @@ export function UsersAdminPage() {
                   </div>
                   <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
                     <div><dt className="text-navy-400">Реєстрація</dt><dd className="text-navy-700">{formatDate(u.createdAt)}</dd></div>
-                    <div><dt className="text-navy-400">Привʼязка</dt><dd className="text-navy-700">{linkageLabel(u.linkage)}</dd></div>
+                    <div><dt className="text-navy-400">Привʼязка</dt><dd className="text-navy-700"><LinkageCell user={u} specialties={specialties} onChanged={onSpecialtyChanged} onError={setToast} /></dd></div>
                   </dl>
                   <div className="mt-3 border-t border-[color:var(--line)] pt-3">
                     <RoleSelect user={u} isSelf={isSelf} onPick={(to) => setPending({ user: u, to })} />
@@ -264,11 +311,108 @@ export function UsersAdminPage() {
         <RoleChangeModal
           user={pending.user}
           to={pending.to}
+          specialties={specialties}
           onCancel={() => setPending(null)}
           onDone={onRoleChanged}
         />
       )}
+
+      {toast && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="fixed bottom-5 left-1/2 z-[120] -translate-x-1/2 rounded-full border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-medium text-red-700 shadow-lg"
+        >
+          {toast}
+        </div>
+      )}
     </>
+  );
+}
+
+// ─── Linkage / specialty cell ─────────────────────────────────────────────────
+
+function LinkageCell({
+  user,
+  specialties,
+  onChanged,
+  onError,
+}: {
+  user: AdminUser;
+  specialties: ApiSpecialty[] | null;
+  onChanged: (userId: string, specialtyId: string | null, specialtyName: string | null) => void;
+  onError: (message: string) => void;
+}) {
+  const l: Linkage = user.linkage;
+  if (l?.type !== "doctor") return <>{linkageLabel(l)}</>;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span>
+        Лікар: <span className="font-medium text-navy-900">{l.name}</span>
+      </span>
+      <DoctorSpecialtyCell
+        doctorId={l.id}
+        currentId={l.specialtyId}
+        currentName={l.specialtyName}
+        specialties={specialties}
+        onChanged={(specialtyId, specialtyName) => onChanged(user.id, specialtyId, specialtyName)}
+        onError={onError}
+      />
+    </div>
+  );
+}
+
+function DoctorSpecialtyCell({
+  doctorId,
+  currentId,
+  currentName,
+  specialties,
+  onChanged,
+  onError,
+}: {
+  doctorId: string;
+  currentId: string | null;
+  currentName: string | null;
+  specialties: ApiSpecialty[] | null;
+  onChanged: (specialtyId: string | null, specialtyName: string | null) => void;
+  onError: (message: string) => void;
+}) {
+  // undefined = idle (show currentId); otherwise an optimistic in-flight value.
+  const [pending, setPending] = useState<string | null | undefined>(undefined);
+  const [saving, setSaving] = useState(false);
+
+  // While the directory is still loading, show static text (no blank select).
+  if (specialties === null) {
+    return <span className="text-xs text-navy-400">{currentName ?? NO_SPECIALTY_LABEL}</span>;
+  }
+
+  const value = pending !== undefined ? pending : currentId;
+
+  const handle = async (next: string | null) => {
+    if (next === currentId) return;
+    setPending(next);
+    setSaving(true);
+    try {
+      const updated = await updateDoctorSpecialty(doctorId, next);
+      onChanged(updated.specialtyId, updated.specialtyName);
+      setPending(undefined); // settled; row now carries the new value
+    } catch (err) {
+      setPending(undefined); // revert the displayed value to currentId
+      onError(err instanceof ShopApiError ? err.message : "Не вдалося оновити спеціальність");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <SpecialtySelect
+      value={value}
+      specialties={specialties}
+      onChange={handle}
+      loading={saving}
+      ariaLabel={`Спеціальність лікаря ${currentName ?? ""}`.trim()}
+      className="w-full max-w-[220px] rounded-lg border border-[color:var(--line-2)] bg-white py-1.5 pl-2.5 pr-7 text-xs text-navy-900 outline-none transition-[border,box-shadow] focus:border-navy-900 focus:shadow-[0_0_0_3px_rgba(0,201,167,0.18)] disabled:cursor-not-allowed disabled:opacity-60"
+    />
   );
 }
 
@@ -326,11 +470,14 @@ const fieldError = "text-xs text-red-500";
 function RoleChangeModal({
   user,
   to,
+  specialties,
   onCancel,
   onDone,
 }: {
   user: AdminUser;
   to: Role;
+  /** Shared specialty directory from the page (null = still loading). */
+  specialties: ApiSpecialty[] | null;
   onCancel: () => void;
   onDone: (updated: AdminUser) => void;
 }) {
@@ -342,7 +489,8 @@ function RoleChangeModal({
   const [doctors, setDoctors] = useState<UnlinkedDoctor[] | null>(null);
   const [existingId, setExistingId] = useState<string>("");
   const [newName, setNewName] = useState("");
-  const [newSpecialty, setNewSpecialty] = useState("");
+  // Specialty for a NEW doctor — id from the directory (null = "Без спеціальності").
+  const [newSpecialtyId, setNewSpecialtyId] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -360,7 +508,7 @@ function RoleChangeModal({
     };
   }, []);
 
-  // Load unlinked doctors when promoting to DOCTOR.
+  // Load unlinked doctors + the specialty directory when promoting to DOCTOR.
   useEffect(() => {
     if (!toDoctor) return;
     let active = true;
@@ -400,7 +548,9 @@ function RoleChangeModal({
     [onCancel],
   );
 
-  const newValid = newName.trim().length >= 2 && newSpecialty.trim().length >= 2;
+  // Спеціальність — з мок-довідника (+ «Без спеціальності» = порожній рядок),
+  // тож обовʼязкове лише імʼя лікаря.
+  const newValid = newName.trim().length >= 2;
   const canConfirm =
     !busy && (!toDoctor || (bindMode === "existing" ? !!existingId : newValid));
 
@@ -410,7 +560,7 @@ function RoleChangeModal({
     const input: ChangeRoleInput = { role: to };
     if (toDoctor) {
       if (bindMode === "existing") input.doctorId = existingId;
-      else input.newDoctor = { name: newName.trim(), specialty: newSpecialty.trim() };
+      else input.newDoctor = { name: newName.trim(), specialtyId: newSpecialtyId || null };
     }
     setBusy(true);
     setError(null);
@@ -459,7 +609,9 @@ function RoleChangeModal({
                 ) : doctors.length > 0 ? (
                   <select data-autofocus value={existingId} onChange={(e) => setExistingId(e.target.value)} aria-label="Лікар без акаунта" className={fieldInput}>
                     {doctors.map((d) => (
-                      <option key={d.id} value={d.id}>{d.name} · {d.specialty}</option>
+                      <option key={d.id} value={d.id}>
+                        {d.specialtyName ? `${d.name} · ${d.specialtyName}` : d.name}
+                      </option>
                     ))}
                   </select>
                 ) : (
@@ -473,9 +625,15 @@ function RoleChangeModal({
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label htmlFor="doc-spec" className={fieldLabel}>Спеціальність</label>
-                    <input id="doc-spec" type="text" value={newSpecialty} onChange={(e) => setNewSpecialty(e.target.value)} placeholder="Напр. Ортодонт" className={fieldInput} aria-invalid={touched && newSpecialty.trim().length < 2} />
+                    <SpecialtySelect
+                      id="doc-spec"
+                      value={newSpecialtyId}
+                      specialties={specialties}
+                      onChange={setNewSpecialtyId}
+                      className={fieldInput}
+                    />
                   </div>
-                  {touched && !newValid && <span className={fieldError}>Вкажіть імʼя та спеціальність (мін. 2 символи).</span>}
+                  {touched && !newValid && <span className={fieldError}>Вкажіть імʼя лікаря (мін. 2 символи).</span>}
                 </div>
               )}
             </div>

@@ -46,7 +46,7 @@ type ApptRow = {
   patientId: string;
   patient: { name: string };
   doctorId: string;
-  doctor: { name: string; specialty: string };
+  doctor: { name: string; specialty: { name: string } | null };
   createdAt: Date;
 };
 
@@ -56,8 +56,34 @@ type SlotRow = {
   startsAt: Date;
   endsAt: Date;
   status: SlotStatus;
-  doctor: { name: string; specialty: string };
+  doctor: { name: string; specialty: { name: string } | null };
 };
+
+// Doctor select that pulls the specialty NAME via the relation (display only).
+const DOCTOR_NAME_SPEC = {
+  select: { name: true, specialty: { select: { name: true } } },
+} as const;
+// Doctor select for the roster: id + name + specialty id/name (filter + display).
+const DOCTOR_ROSTER_SELECT = {
+  id: true,
+  name: true,
+  specialty: { select: { id: true, name: true } },
+} as const;
+
+type DoctorRosterRow = {
+  id: string;
+  name: string;
+  specialty: { id: string; name: string } | null;
+};
+function mapDoctor(d: DoctorRosterRow, nowMs: number): LocalDoctor {
+  return {
+    id: d.id,
+    name: d.name,
+    specialtyId: d.specialty?.id ?? null,
+    specialtyName: d.specialty?.name ?? null,
+    lastMirroredAt: nowMs,
+  };
+}
 
 function mapAppt(a: ApptRow, nowMs: number): LocalAppointment {
   return {
@@ -69,7 +95,7 @@ function mapAppt(a: ApptRow, nowMs: number): LocalAppointment {
     patientName: a.patient.name,
     doctorId: a.doctorId,
     doctorName: a.doctor.name,
-    doctorSpecialty: a.doctor.specialty,
+    doctorSpecialty: a.doctor.specialty?.name ?? null,
     createdAt: a.createdAt.toISOString(),
     lastMirroredAt: nowMs,
   };
@@ -80,7 +106,7 @@ function mapSlot(s: SlotRow, nowMs: number): LocalSlot {
     id: s.id,
     doctorId: s.doctorId,
     doctorName: s.doctor.name,
-    doctorSpecialty: s.doctor.specialty,
+    doctorSpecialty: s.doctor.specialty?.name ?? null,
     startsAt: s.startsAt.toISOString(),
     endsAt: s.endsAt.toISOString(),
     status: s.status,
@@ -111,7 +137,7 @@ export async function GET() {
     role === Role.DOCTOR
       ? await prisma.doctor.findUnique({
           where: { userId: session.user.id },
-          select: { id: true, name: true, specialty: true },
+          select: DOCTOR_ROSTER_SELECT,
         })
       : null;
 
@@ -150,20 +176,18 @@ export async function GET() {
 
     const rows = await prisma.appointment.findMany({
       where: { patientId, date: { gte: from, lte: to } },
-      include: { patient: true, doctor: true },
+      include: { patient: { select: { name: true } }, doctor: DOCTOR_NAME_SPEC },
       orderBy: { date: "asc" },
     });
     appointments = rows.map((a) => mapAppt(a, nowMs));
 
     const ids = [...new Set(rows.map((a) => a.doctorId))];
     if (ids.length > 0) {
-      const docRows = await prisma.doctor.findMany({ where: { id: { in: ids } } });
-      doctors = docRows.map((d) => ({
-        id: d.id,
-        name: d.name,
-        specialty: d.specialty,
-        lastMirroredAt: nowMs,
-      }));
+      const docRows = await prisma.doctor.findMany({
+        where: { id: { in: ids } },
+        select: DOCTOR_ROSTER_SELECT,
+      });
+      doctors = docRows.map((d) => mapDoctor(d, nowMs));
     }
 
     return NextResponse.json<MirrorPayload>({
@@ -193,26 +217,19 @@ export async function GET() {
     const [slotRows, apptRows] = await Promise.all([
       prisma.availabilitySlot.findMany({
         where: { doctorId: ownDoctor.id, startsAt: { gte: start, lt: end } },
-        include: { doctor: { select: { name: true, specialty: true } } },
+        include: { doctor: DOCTOR_NAME_SPEC },
         orderBy: { startsAt: "asc" },
       }),
       prisma.appointment.findMany({
         where: { doctorId: ownDoctor.id, date: { gte: start, lt: end } },
-        include: { patient: true, doctor: true },
+        include: { patient: { select: { name: true } }, doctor: DOCTOR_NAME_SPEC },
         orderBy: { date: "asc" },
       }),
     ]);
 
     slots = slotRows.map((s) => mapSlot(s, nowMs));
     appointments = apptRows.map((a) => mapAppt(a, nowMs));
-    doctors = [
-      {
-        id: ownDoctor.id,
-        name: ownDoctor.name,
-        specialty: ownDoctor.specialty,
-        lastMirroredAt: nowMs,
-      },
-    ];
+    doctors = [mapDoctor(ownDoctor, nowMs)];
 
     const pIds = [...new Set(apptRows.map((a) => a.patientId))];
     if (pIds.length > 0) {
@@ -244,28 +261,23 @@ export async function GET() {
   const [apptRows, slotRows, docRows] = await Promise.all([
     prisma.appointment.findMany({
       where: { date: { gte: start, lte: end } },
-      include: { patient: true, doctor: true },
+      include: { patient: { select: { name: true } }, doctor: DOCTOR_NAME_SPEC },
       orderBy: { date: "asc" },
     }),
     prisma.availabilitySlot.findMany({
       where: { startsAt: { gte: start, lt: end } },
-      include: { doctor: { select: { name: true, specialty: true } } },
+      include: { doctor: DOCTOR_NAME_SPEC },
       orderBy: { startsAt: "asc" },
     }),
     prisma.doctor.findMany({
       orderBy: { name: "asc" },
-      select: { id: true, name: true, specialty: true },
+      select: DOCTOR_ROSTER_SELECT,
     }),
   ]);
 
   appointments = apptRows.map((a) => mapAppt(a, nowMs));
   slots = slotRows.map((s) => mapSlot(s, nowMs));
-  doctors = docRows.map((d) => ({
-    id: d.id,
-    name: d.name,
-    specialty: d.specialty,
-    lastMirroredAt: nowMs,
-  }));
+  doctors = docRows.map((d) => mapDoctor(d, nowMs));
 
   const pIds = [...new Set(apptRows.map((a) => a.patientId))];
   if (pIds.length > 0) {

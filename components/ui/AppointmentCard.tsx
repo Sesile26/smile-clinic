@@ -53,7 +53,8 @@ export function AppointmentCard({ appointment, onCancel }: AppointmentCardProps)
         <div className="min-w-0">
           <h3 className="truncate text-base font-semibold">{patientName}</h3>
           <p className="mt-0.5 truncate text-sm text-white/60">
-            {doctorName} · {doctorSpecialty}
+            {doctorName}
+            {doctorSpecialty ? ` · ${doctorSpecialty}` : ""}
           </p>
         </div>
         <span

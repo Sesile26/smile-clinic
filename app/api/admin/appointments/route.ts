@@ -123,7 +123,7 @@ export async function GET(request: Request) {
           date: true,
           status: true,
           patient: { select: { name: true, phone: true } },
-          doctor: { select: { id: true, name: true, specialty: true } },
+          doctor: { select: { id: true, name: true, specialty: { select: { name: true } } } },
         },
       }),
       prisma.appointment.count({ where }),
@@ -137,7 +137,7 @@ export async function GET(request: Request) {
       patientPhone: a.patient.phone,
       doctorId: a.doctor.id,
       doctorName: a.doctor.name,
-      doctorSpecialty: a.doctor.specialty,
+      doctorSpecialty: a.doctor.specialty?.name ?? null,
     }));
 
     return NextResponse.json<AdminAppointmentsPage>({

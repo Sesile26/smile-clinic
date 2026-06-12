@@ -541,7 +541,9 @@ function TimelineList({ items }: { items: AdminPatientAppointment[] }) {
               </div>
               <div className="mt-0.5 text-sm text-navy-700">
                 {a.doctorName}
-                <span className="text-navy-400"> · {a.doctorSpecialty}</span>
+                {a.doctorSpecialty && (
+                  <span className="text-navy-400"> · {a.doctorSpecialty}</span>
+                )}
               </div>
             </div>
             <StatusBadge status={a.status} />

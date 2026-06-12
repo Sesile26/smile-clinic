@@ -57,7 +57,9 @@ export function AppointmentCard({
 
           <div className="text-sm text-navy-900">
             <span className="font-medium">{a.doctorName}</span>
-            <span className="text-navy-400"> · {a.doctorSpecialty}</span>
+            {a.doctorSpecialty && (
+              <span className="text-navy-400"> · {a.doctorSpecialty}</span>
+            )}
           </div>
 
           {isUpcoming && (

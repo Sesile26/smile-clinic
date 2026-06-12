@@ -115,7 +115,7 @@ export function CancelModal({
         </p>
 
         <dl className="mb-6 divide-y divide-[color:var(--line)] rounded-xl border border-[color:var(--line)] bg-cream/40">
-          <Row term="Лікар" value={`${a.doctorName} · ${a.doctorSpecialty}`} />
+          <Row term="Лікар" value={a.doctorSpecialty ? `${a.doctorName} · ${a.doctorSpecialty}` : a.doctorName} />
           <Row term="Дата" value={formatDayLong(a.date)} />
           <Row term="Час" value={formatTime(a.date)} />
           <Row term="Статус" value={STATUS_META[a.status].label} />

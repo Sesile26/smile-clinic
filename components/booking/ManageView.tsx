@@ -194,7 +194,9 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
               doctors.length
                 ? doctors.map((d) => ({
                     value: d.id,
-                    label: `${d.name} · ${d.specialty}`,
+                    label: d.specialtyName
+                      ? `${d.name} · ${d.specialtyName}`
+                      : d.name,
                   }))
                 : [{ value: "", label: "Немає лікарів" }]
             }
@@ -207,8 +209,8 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
             </div>
             <div className="mt-1 text-sm font-medium text-navy-900">
               {activeDoctor?.name ?? "—"}
-              {activeDoctor?.specialty && (
-                <span className="text-navy-400"> · {activeDoctor.specialty}</span>
+              {activeDoctor?.specialtyName && (
+                <span className="text-navy-400"> · {activeDoctor.specialtyName}</span>
               )}
             </div>
           </div>

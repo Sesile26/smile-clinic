@@ -128,16 +128,30 @@ model Patient {
   user         User?
 }
 
+// Довідник спеціальностей лікарів (за зразком Category для товарів).
+model Specialty {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  doctors   Doctor[]
+}
+
 model Doctor {
   id           String             @id @default(cuid())
   name         String
-  specialty    String
+  // Спеціальність винесена в окремий довідник Specialty. SetNull — видалення
+  // спеціальності лишає лікаря без неї (не нищить запис), як Category→Product.
+  specialtyId  String?
+  specialty    Specialty?         @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
   // Опційний звʼязок з акаунтом: лікар може мати User для входу в кабінет.
   userId       String?            @unique
   user         User?              @relation(fields: [userId], references: [id])
   createdAt    DateTime           @default(now())
   appointments Appointment[]
   slots        AvailabilitySlot[]
+
+  @@index([specialtyId])
 }
 
 model Appointment {

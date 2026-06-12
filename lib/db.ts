@@ -25,7 +25,8 @@ export interface LocalAppointment {
   patientName: string;
   doctorId: string;
   doctorName: string;
-  doctorSpecialty: string;
+  /** Specialty name via relation; null when the doctor has none. Display only. */
+  doctorSpecialty: string | null;
   createdAt: string;
   /** Date.now() of the most recent pull that included this row. */
   lastMirroredAt: number;
@@ -43,7 +44,8 @@ export interface LocalPatient {
 export interface LocalDoctor {
   id: string;
   name: string;
-  specialty: string;
+  specialtyId: string | null;
+  specialtyName: string | null;
   lastMirroredAt: number;
 }
 
@@ -58,7 +60,8 @@ export interface LocalSlot {
   id: string;
   doctorId: string;
   doctorName: string;
-  doctorSpecialty: string;
+  /** Specialty name via relation; null when the doctor has none. Display only. */
+  doctorSpecialty: string | null;
   /** UTC ISO. */
   startsAt: string;
   /** UTC ISO. */

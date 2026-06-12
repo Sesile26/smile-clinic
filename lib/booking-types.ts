@@ -18,7 +18,10 @@ export interface ApiSlot {
 export interface ApiDoctor {
   id: string;
   name: string;
-  specialty: string;
+  /** FK to Specialty — the booking filter matches on this id (null = "Без
+   *  спеціальності"). The denormalized name below is for display only. */
+  specialtyId: string | null;
+  specialtyName: string | null;
 }
 
 /** Stable error codes the UI branches on (status text is for humans). */

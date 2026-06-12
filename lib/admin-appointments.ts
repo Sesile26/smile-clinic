@@ -23,7 +23,8 @@ export interface AdminAppointment {
   patientPhone: string | null;
   doctorId: string;
   doctorName: string;
-  doctorSpecialty: string;
+  /** Specialty name via relation; null when the doctor has none. */
+  doctorSpecialty: string | null;
 }
 
 export interface AdminAppointmentsPage {

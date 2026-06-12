@@ -179,7 +179,7 @@ export function ConfirmModal({
 
             <dl className="mb-6 divide-y divide-[color:var(--line)] rounded-xl border border-[color:var(--line)] bg-cream/40">
               <Row term="Лікар" value={doctor?.name ?? "—"} />
-              <Row term="Спеціальність" value={doctor?.specialty ?? "—"} />
+              <Row term="Спеціальність" value={doctor?.specialtyName ?? "—"} />
               <Row term="Дата" value={date ? formatDayLong(date) : "—"} />
               <Row term="Час" value={time ?? "—"} />
             </dl>

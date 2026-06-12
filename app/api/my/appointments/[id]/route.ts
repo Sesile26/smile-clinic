@@ -85,10 +85,11 @@ export async function PATCH(
         date: true,
         status: true,
         doctorId: true,
-        doctor: { select: { name: true, specialty: true } },
+        doctor: { select: { name: true, specialty: { select: { name: true } } } },
         patient: { select: { name: true } },
       },
     });
+    const specName = updated.doctor.specialty?.name ?? null;
     // Notify the patient about their own cancellation. Best-effort — a
     // notification failure must not fail the cancel itself.
     try {
@@ -96,7 +97,7 @@ export async function PATCH(
         userId: actor.userId,
         type: "appointment_status",
         title: "Запис скасовано",
-        body: `${updated.doctor.name} · ${updated.doctor.specialty}`,
+        body: specName ? `${updated.doctor.name} · ${specName}` : updated.doctor.name,
         link: "/my/appointments",
       });
     } catch (e) {
@@ -120,7 +121,7 @@ export async function PATCH(
       date: updated.date.toISOString(),
       status: updated.status,
       doctorName: updated.doctor.name,
-      doctorSpecialty: updated.doctor.specialty,
+      doctorSpecialty: specName,
     });
   } catch (err) {
     console.error("PATCH /api/my/appointments/[id] failed", err);

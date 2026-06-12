@@ -107,7 +107,8 @@ export function useDoctors(online: boolean): {
   const doctors = (mirror ?? []).map((d) => ({
     id: d.id,
     name: d.name,
-    specialty: d.specialty,
+    specialtyId: d.specialtyId,
+    specialtyName: d.specialtyName,
   }));
   return { doctors, state: mirror === undefined ? "loading" : "ready" };
 }

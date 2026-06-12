@@ -80,7 +80,7 @@ export async function GET(
         date: true,
         status: true,
         notes: true,
-        doctor: { select: { name: true, specialty: true } },
+        doctor: { select: { name: true, specialty: { select: { name: true } } } },
       },
     });
     const items: AdminPatientAppointment[] = rows.map((r) => ({
@@ -89,7 +89,7 @@ export async function GET(
       status: r.status,
       notes: r.notes,
       doctorName: r.doctor.name,
-      doctorSpecialty: r.doctor.specialty,
+      doctorSpecialty: r.doctor.specialty?.name ?? null,
     }));
     return NextResponse.json<AdminPatientAppointment[]>(items);
   } catch (err) {

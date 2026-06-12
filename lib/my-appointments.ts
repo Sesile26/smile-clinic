@@ -15,7 +15,8 @@ export interface MyAppointment {
   date: string;
   status: MyApptStatus;
   doctorName: string;
-  doctorSpecialty: string;
+  /** Specialty name via relation; null when the doctor has none. */
+  doctorSpecialty: string | null;
 }
 
 async function toError(res: Response): Promise<BookingApiError> {

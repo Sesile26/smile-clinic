@@ -42,7 +42,8 @@ export interface AdminPatientAppointment {
   status: AppointmentStatus;
   notes: string | null;
   doctorName: string;
-  doctorSpecialty: string;
+  /** Specialty name via relation; null when the doctor has none. */
+  doctorSpecialty: string | null;
 }
 
 async function toError(res: Response): Promise<ShopApiError> {

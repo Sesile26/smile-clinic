@@ -26,7 +26,7 @@ export async function GET() {
         id: true,
         date: true,
         status: true,
-        doctor: { select: { name: true, specialty: true } },
+        doctor: { select: { name: true, specialty: { select: { name: true } } } },
       },
     });
 
@@ -35,7 +35,7 @@ export async function GET() {
       date: a.date.toISOString(),
       status: a.status,
       doctorName: a.doctor.name,
-      doctorSpecialty: a.doctor.specialty,
+      doctorSpecialty: a.doctor.specialty?.name ?? null,
     }));
     return NextResponse.json<MyAppointment[]>(out);
   } catch (err) {
