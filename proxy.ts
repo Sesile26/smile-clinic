@@ -12,6 +12,10 @@ const STAFF_ROUTES = ["/dashboard", "/patients", "/appointments", "/admin"];
 // the generic /admin staff-only rule. Server APIs re-scope to the doctor.
 const MANAGER_ROUTES = ["/admin/patients", "/admin/appointments"];
 
+// Routes inside the staff area that require ADMIN specifically (user & role
+// management). Checked BEFORE STAFF_ROUTES so STAFF is bounced home here.
+const ADMIN_ROUTES = ["/admin/users"];
+
 // Routes that require any authenticated user (role-specific UI is decided in
 // the page itself — /booking shows slot management to doctors/staff/admin and
 // booking to patients; here we only require a session).
@@ -30,10 +34,14 @@ export default auth((req) => {
   const isManagerRoute = MANAGER_ROUTES.some((p) =>
     nextUrl.pathname.startsWith(p),
   );
-  // A manager route also starts with "/admin", so exclude it from the generic
-  // staff-only check — otherwise a DOCTOR would be bounced home.
+  const isAdminRoute = ADMIN_ROUTES.some((p) =>
+    nextUrl.pathname.startsWith(p),
+  );
+  // Manager/admin routes also start with "/admin"; exclude them from the
+  // generic staff-only check so they get their own (looser/stricter) rule.
   const isStaffRoute =
     !isManagerRoute &&
+    !isAdminRoute &&
     STAFF_ROUTES.some((p) => nextUrl.pathname.startsWith(p));
   const isAuthRoute = AUTH_ROUTES.some((p) =>
     nextUrl.pathname.startsWith(p),
@@ -41,7 +49,7 @@ export default auth((req) => {
 
   // GUEST on ANY protected route → login (not home), carrying callbackUrl so
   // after signing in they land back where they originally wanted to go.
-  if (!isLoggedIn && (isStaffRoute || isManagerRoute || isAuthRoute)) {
+  if (!isLoggedIn && (isStaffRoute || isManagerRoute || isAdminRoute || isAuthRoute)) {
     const loginUrl = new URL("/login", req.url);
     loginUrl.searchParams.set(
       "callbackUrl",
@@ -62,6 +70,14 @@ export default auth((req) => {
       return NextResponse.redirect(new URL("/admin/patients", req.url));
     }
     return NextResponse.redirect(new URL("/", req.url)); // patient
+  }
+
+  // Admin-only zone (e.g. /admin/users): ADMIN only; STAFF/DOCTOR/PATIENT → home.
+  // The API re-checks role === ADMIN independently of this redirect.
+  if (isAdminRoute) {
+    if (session?.user?.role !== "ADMIN") {
+      return NextResponse.redirect(new URL("/", req.url));
+    }
   }
 
   // Manager zone (e.g. /admin/patients): STAFF/ADMIN/DOCTOR allowed; a PATIENT

@@ -7,7 +7,8 @@ export type NotificationType =
   | "appointment_status"
   | "appointment_new"
   | "order_new"
-  | "order_status";
+  | "order_status"
+  | "role_changed";
 
 export interface ClientNotification {
   id: string;

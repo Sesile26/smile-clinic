@@ -48,6 +48,7 @@ enum NotificationType {
   appointment_new
   order_new
   order_status
+  role_changed
 }
 
 // ─── Auth.js models ──────────────────────────────────────────────────────────

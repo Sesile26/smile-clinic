@@ -103,24 +103,30 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
 
   callbacks: {
-    // jwt() runs on every request, but `user` is only defined right after a
-    // successful sign-in. That's the cheapest moment to look up the role and
-    // patientId once and bake them into the token, so subsequent requests
-    // don't touch the DB.
+    // jwt() runs on every request. We re-read role/patientId/doctorId from the
+    // DB each time (a single indexed PK lookup) rather than baking them once at
+    // sign-in. WHY: an admin can change another user's role; with a sign-in-only
+    // bake that change would stay invisible (and, for a downgrade, a security
+    // gap) until the affected user next signed in. Re-reading makes a role
+    // change effective on that user's NEXT request — no re-login needed — and
+    // also keeps a freshly-linked doctorId / patientId current. The cost is one
+    // `User` lookup per authenticated request, acceptable at this app's scale.
     async jwt({ token, user }) {
-      if (user?.id) {
-        const dbUser = await prisma.user.findUnique({
-          where: { id: user.id },
-          select: {
-            role: true,
-            patientId: true,
-            // Linked Doctor row, if this account is a doctor.
-            doctor: { select: { id: true } },
-          },
-        });
-        token.role = dbUser?.role ?? Role.PATIENT;
-        token.patientId = dbUser?.patientId ?? undefined;
-        token.doctorId = dbUser?.doctor?.id ?? undefined;
+      const userId = user?.id ?? token.sub;
+      if (!userId) return token;
+      const dbUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          role: true,
+          patientId: true,
+          // Linked Doctor row, if this account is a doctor.
+          doctor: { select: { id: true } },
+        },
+      });
+      if (dbUser) {
+        token.role = dbUser.role;
+        token.patientId = dbUser.patientId ?? undefined;
+        token.doctorId = dbUser.doctor?.id ?? undefined;
       }
       return token;
     },
