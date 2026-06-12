@@ -10,7 +10,7 @@ const STAFF_ROUTES = ["/dashboard", "/patients", "/appointments", "/admin"];
 // Routes inside the staff area that DOCTOR may also reach (read their own
 // patients). Checked BEFORE STAFF_ROUTES so /admin/patients isn't blocked by
 // the generic /admin staff-only rule. Server APIs re-scope to the doctor.
-const MANAGER_ROUTES = ["/admin/patients"];
+const MANAGER_ROUTES = ["/admin/patients", "/admin/appointments"];
 
 // Routes that require any authenticated user (role-specific UI is decided in
 // the page itself — /booking shows slot management to doctors/staff/admin and

@@ -16,6 +16,7 @@ type Role = "ADMIN" | "STAFF" | "DOCTOR" | "PATIENT";
 const TABS: { href: string; label: string; roles: Role[] }[] = [
   { href: "/admin/orders", label: "Замовлення", roles: ["ADMIN", "STAFF"] },
   { href: "/admin/patients", label: "Пацієнти", roles: ["ADMIN", "STAFF", "DOCTOR"] },
+  { href: "/admin/appointments", label: "Записи", roles: ["ADMIN", "STAFF", "DOCTOR"] },
   { href: "/admin/products", label: "Товари", roles: ["ADMIN", "STAFF"] },
   { href: "/admin/categories", label: "Категорії", roles: ["ADMIN", "STAFF"] },
 ];
