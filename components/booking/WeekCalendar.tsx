@@ -22,6 +22,8 @@ interface WeekCalendarProps {
   selectedDay: number;
   onSelectDay: (index: number) => void;
   onActivate: (dayIndex: number, time: string, status: SlotStatus) => void;
+  /** Manage-only: fill all empty working hours of a day (per-day button). */
+  onFillDay?: (dayIndex: number) => void;
 }
 
 /** Which cells render an interactive button in each mode. */
@@ -32,7 +34,7 @@ function isFocusable(
   past?: boolean,
 ): boolean {
   if (disabled || past) return false; // past cells are never actionable
-  if (mode === "manage") return status !== "booked";
+  if (mode === "manage") return status !== "booked"; // off/working clickable
   return status === "working"; // book mode → only free slots
 }
 
@@ -49,6 +51,7 @@ export function WeekCalendar({
   selectedDay,
   onSelectDay,
   onActivate,
+  onFillDay,
 }: WeekCalendarProps) {
   const times = week[0]?.slots.map((s) => s.time) ?? [];
   const rows = times.length;
@@ -171,13 +174,25 @@ export function WeekCalendar({
                   >
                     {day.date.getDate()}
                   </span>
+                  {mode === "manage" && onFillDay && !disabled && (
+                    <button
+                      type="button"
+                      onClick={() => onFillDay(c)}
+                      aria-label={`Заповнити день ${day.date.getDate()}.${day.date.getMonth() + 1} вільними слотами`}
+                      title="Заповнити день вільними слотами"
+                      className="mt-1 block w-full rounded-md border border-[color:var(--line-2)] bg-white px-1 py-0.5 text-[10px] font-medium text-navy-700 transition-colors hover:border-mint hover:text-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint"
+                    >
+                      Заповнити
+                    </button>
+                  )}
                 </span>
               );
             })}
           </div>
 
-          {/* Time rows */}
-          <div className="max-h-[560px] overflow-y-auto">
+          {/* Time rows — no inner scroll: the full day fits; the page scrolls
+              if the viewport is short. */}
+          <div>
             {times.map((time, r) => (
               <div
                 role="row"
@@ -210,7 +225,7 @@ export function WeekCalendar({
                     <div
                       role="gridcell"
                       key={day.date.toISOString()}
-                      className="p-1"
+                      className="p-0.5"
                     >
                       {show ? (
                         <SlotButton
@@ -283,6 +298,16 @@ export function WeekCalendar({
             );
           })}
         </div>
+
+        {mode === "manage" && onFillDay && !disabled && week[selectedDay] && (
+          <button
+            type="button"
+            onClick={() => onFillDay(selectedDay)}
+            className="mb-3 w-full rounded-lg border border-[color:var(--line-2)] bg-white px-3 py-2 text-sm font-medium text-navy-700 transition-colors hover:border-mint hover:text-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint"
+          >
+            Заповнити день вільними слотами
+          </button>
+        )}
 
         <MobileDayList
           day={week[selectedDay]}

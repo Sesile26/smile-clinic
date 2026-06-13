@@ -66,6 +66,7 @@ export interface LocalSlot {
   startsAt: string;
   /** UTC ISO. */
   endsAt: string;
+  // The patient mirror never contains slots at all (manager-only).
   status: "free" | "booked";
   lastMirroredAt: number;
 }

@@ -69,6 +69,23 @@ export async function createSlot(
   return (await res.json()) as ApiSlot;
 }
 
+/** Open every empty working hour of a local day (YYYY-MM-DD). Returns the count
+ *  actually created (existing/past hours are skipped server-side). */
+export async function fillDay(
+  doctorId: string,
+  date: string,
+): Promise<{ created: number }> {
+  const res = await fetch("/api/slots/fill-day", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ doctorId, date }),
+  });
+  if (!res.ok) throw await toError(res);
+  return (await res.json()) as { created: number };
+}
+
+/** Delete a free slot (remove availability). Booked slots are protected
+ *  server-side. */
 export async function deleteSlot(id: string): Promise<void> {
   const res = await fetch("/api/slots", {
     method: "DELETE",

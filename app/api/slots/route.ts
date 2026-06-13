@@ -33,7 +33,9 @@ function toApiSlot(s: {
     doctorId: s.doctorId,
     startsAt: s.startsAt.toISOString(),
     endsAt: s.endsAt.toISOString(),
-    status: s.status,
+    // Wire status is free|booked. (The DB enum still carries a dead "blocked"
+    // value — unused; coerced to free defensively.)
+    status: s.status === "booked" ? "booked" : "free",
   };
 }
 
@@ -62,7 +64,7 @@ export async function GET(request: Request) {
   }
 
   // Managers see free + booked (so the grid can lock booked cells); patients
-  // (and doctors peeking at another doctor) see only free slots.
+  // (and doctors peeking at another doctor) see only free, bookable slots.
   const canSeeAll = canManageDoctor(actor, doctorId);
 
   // Patients never see past slots: clamp the lower bound to now. Managers keep
@@ -219,8 +221,8 @@ export async function DELETE(request: Request) {
       return apiError(409, "slot_busy", "Не можна видалити зайнятий слот");
     }
 
-    // Conditional delete: status guard closes the race where the slot gets
-    // booked between the check above and this statement.
+    // Conditional delete: the status guard closes the race where a free slot
+    // gets booked between the check above and this statement.
     const res = await prisma.availabilitySlot.deleteMany({
       where: { id, status: SlotStatus.free },
     });

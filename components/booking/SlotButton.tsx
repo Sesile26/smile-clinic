@@ -19,6 +19,8 @@ interface SlotButtonProps {
   past?: boolean;
   /** Roving-tabindex: only the active cell is in the tab order. */
   tabIndex?: number;
+  /** Overrides the computed title/tooltip. */
+  title?: string;
   onClick?: () => void;
   onKeyDown?: (e: React.KeyboardEvent<HTMLButtonElement>) => void;
   onFocusCapture?: () => void;
@@ -32,8 +34,7 @@ const VARIANT_CLASS: Record<SlotVariant, string> = {
   working:
     "border-mint bg-mint-100 text-navy-900 hover:bg-mint/30 aria-pressed:border-mint",
   // both views — booked: locked navy chip, never actionable
-  booked:
-    "border-navy-900/15 bg-navy-900/[0.06] text-navy-400 cursor-not-allowed",
+  booked: "border-navy-900/15 bg-navy-900/[0.06] text-navy-400 cursor-not-allowed",
   // patient view — a free slot to grab
   free: "border-mint/60 bg-white text-navy-900 hover:border-mint hover:bg-mint-100",
   // patient view — the slot currently chosen in the confirm flow
@@ -52,6 +53,7 @@ export const SlotButton = forwardRef<HTMLButtonElement, SlotButtonProps>(
       disabled,
       past,
       tabIndex,
+      title,
       onClick,
       onKeyDown,
       onFocusCapture,
@@ -84,10 +86,15 @@ export const SlotButton = forwardRef<HTMLButtonElement, SlotButtonProps>(
         aria-label={label}
         aria-pressed={isToggle ? variant === "working" : undefined}
         title={
-          isPast ? "Час уже минув" : isBooked ? "Зайнято — є запис" : undefined
+          title ??
+          (isPast
+            ? "Час уже минув"
+            : isBooked
+              ? "Зайнято — є запис"
+              : undefined)
         }
         className={cn(
-          "flex w-full items-center justify-center gap-1 rounded-lg border px-2 py-2 text-[13px] font-medium tabular-nums transition-colors duration-150",
+          "flex min-h-[34px] w-full items-center justify-center gap-1 rounded-lg border px-2 py-1.5 text-[13px] font-medium tabular-nums transition-colors duration-150",
           "focus:outline-none focus-visible:ring-2 focus-visible:ring-mint focus-visible:ring-offset-1",
           "disabled:cursor-not-allowed",
           // Past styling overrides the status variant: muted grey, no hover.

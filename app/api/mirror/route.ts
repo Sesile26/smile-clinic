@@ -109,7 +109,8 @@ function mapSlot(s: SlotRow, nowMs: number): LocalSlot {
     doctorSpecialty: s.doctor.specialty?.name ?? null,
     startsAt: s.startsAt.toISOString(),
     endsAt: s.endsAt.toISOString(),
-    status: s.status,
+    // Mirror free|booked only (patients mirror no slots at all).
+    status: s.status === "booked" ? "booked" : "free",
     lastMirroredAt: nowMs,
   };
 }

@@ -29,6 +29,7 @@ enum AppointmentStatus {
 enum SlotStatus {
   free
   booked
+  blocked
 }
 
 enum OrderStatus {

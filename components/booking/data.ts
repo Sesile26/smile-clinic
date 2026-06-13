@@ -150,7 +150,10 @@ export function indexSlots(slots: ApiSlot[]): SlotMaps {
   for (const s of slots) {
     const { dateKey, time } = utcToLocalCell(s.startsAt);
     const key = cellKey(dateKey, time);
-    statusByCell.set(key, s.status === "booked" ? "booked" : "working");
+    // Managers receive free/booked; patients only ever get free (the API
+    // withholds booked from them).
+    const status: SlotStatus = s.status === "booked" ? "booked" : "working";
+    statusByCell.set(key, status);
     slotByCell.set(key, s);
   }
   return { statusByCell, slotByCell };

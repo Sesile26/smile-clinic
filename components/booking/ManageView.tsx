@@ -10,6 +10,7 @@ import {
 import {
   createSlot,
   deleteSlot,
+  fillDay,
   BookingApiError,
 } from "@/lib/booking-client";
 import {
@@ -22,6 +23,7 @@ import {
   addMonths,
   assembleWeek,
   cellKeyOf,
+  dayKey,
   formatMonth,
   formatWeekRange,
   freeCountByDay,
@@ -38,6 +40,7 @@ import { PendingAppointments } from "./PendingAppointments";
 import { WeekCalendar } from "./WeekCalendar";
 import { MonthCalendar } from "./MonthCalendar";
 import { Select } from "./Select";
+import { ConfirmDialog } from "./ConfirmDialog";
 import {
   EmptyState,
   ErrorBanner,
@@ -49,6 +52,25 @@ interface ManageViewProps {
   today: Date;
   identity: BookingIdentity;
   online: boolean;
+}
+
+/** The only confirmable action left: "Заповнити день". */
+type ConfirmState = { kind: "fill"; date: Date; count: number };
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+/** "15.06" for a confirm message. */
+function shortDate(d: Date): string {
+  return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}`;
+}
+/** uk plural for "слот" (1 слот / 2–4 слоти / 5+ слотів). */
+function pluralSlots(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return "слот";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return "слоти";
+  return "слотів";
 }
 
 /**
@@ -68,6 +90,8 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
   const [selectedDay, setSelectedDay] = useState(0);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const [confirm, setConfirm] = useState<ConfirmState | null>(null);
 
   const { doctors, state: doctorsState } = useDoctors(online);
 
@@ -158,6 +182,48 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
     } finally {
       setBusy(false);
     }
+  };
+
+  // Shared wrapper for the async block/unblock/fill calls: busy + error + reload.
+  const runAction = async (fn: () => Promise<unknown>) => {
+    if (busy) return;
+    setActionError(null);
+    setBusy(true);
+    try {
+      await fn();
+      reload();
+    } catch (err) {
+      setActionError(
+        err instanceof BookingApiError
+          ? err.message
+          : "Не вдалося оновити розклад. Спробуйте ще раз.",
+      );
+      reload();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // "Заповнити день": confirm with the count of empty, non-past working hours,
+  // then POST /api/slots/fill-day (server skips existing/past hours).
+  const onFillDay = (dayIndex: number) => {
+    if (!online || busy) return;
+    const day = week[dayIndex];
+    if (!day) return;
+    const count = day.slots.filter((s) => s.status === "off" && !s.past).length;
+    if (count === 0) {
+      setActionError("Немає порожніх годин для заповнення цього дня.");
+      return;
+    }
+    setActionError(null);
+    setConfirm({ kind: "fill", date: day.date, count });
+  };
+
+  const applyConfirm = () => {
+    if (!confirm || !activeDoctorId) return;
+    const c = confirm;
+    setConfirm(null);
+    void runAction(() => fillDay(activeDoctorId, dayKey(c.date)));
   };
 
   const shift = (dir: 1 | -1) => {
@@ -282,14 +348,27 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
           selectedDay={selectedDay}
           onSelectDay={setSelectedDay}
           onActivate={toggleSlot}
+          onFillDay={onFillDay}
         />
       )}
 
       {online && view === "week" && activeDoctorId && slotsState === "ready" && (
         <p className="mt-3 text-xs text-navy-400">
-          Натисніть на вільну клітинку, щоб позначити «працюю», або на мітку
-          «працюю», щоб прибрати. Заброньовані слоти заблоковані.
+          Натисніть порожню годину, щоб відкрити слот, або «працюю», щоб прибрати.
+          «Заповнити день» відкриває всі вільні години одразу. Заброньовані слоти
+          заблоковані.
         </p>
+      )}
+
+      {confirm && (
+        <ConfirmDialog
+          title="Заповнити день"
+          message={`Створити ${confirm.count} ${pluralSlots(confirm.count)} на ${shortDate(confirm.date)}?`}
+          confirmLabel="Створити"
+          cancelLabel="Скасувати"
+          onConfirm={applyConfirm}
+          onCancel={() => setConfirm(null)}
+        />
       )}
     </div>
   );
@@ -298,7 +377,7 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
 function Legend() {
   const items: { label: string; swatch: string }[] = [
     { label: "Працюю", swatch: "border-mint bg-mint-100" },
-    { label: "Не працюю", swatch: "border-[color:var(--line-2)] bg-white" },
+    { label: "Порожньо", swatch: "border-[color:var(--line-2)] bg-white" },
     { label: "Зайнято", swatch: "border-navy-900/15 bg-navy-900/[0.06]" },
   ];
   return (
