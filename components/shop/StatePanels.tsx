@@ -2,7 +2,23 @@
 
 import { cn } from "@/lib/cn";
 
-/** Loading skeleton shaped like the product grid. */
+function SkeletonCard({ i }: { i: number }) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-[color:var(--line)] bg-white">
+      <div
+        className="aspect-[4/3] animate-pulse bg-bone/60"
+        style={{ animationDelay: `${i * 60}ms` }}
+      />
+      <div className="space-y-3 p-5">
+        <div className="h-4 w-3/4 animate-pulse rounded bg-bone/70" />
+        <div className="h-3 w-full animate-pulse rounded bg-bone/50" />
+        <div className="h-9 w-full animate-pulse rounded-full bg-bone/60" />
+      </div>
+    </div>
+  );
+}
+
+/** Loading skeleton shaped like the product grid (first load). */
 export function SkeletonGrid() {
   return (
     <div
@@ -13,22 +29,20 @@ export function SkeletonGrid() {
     >
       <span className="sr-only">Завантаження товарів…</span>
       {Array.from({ length: 6 }).map((_, i) => (
-        <div
-          key={i}
-          className="overflow-hidden rounded-2xl border border-[color:var(--line)] bg-white"
-        >
-          <div
-            className="aspect-[4/3] animate-pulse bg-bone/60"
-            style={{ animationDelay: `${i * 60}ms` }}
-          />
-          <div className="space-y-3 p-5">
-            <div className="h-4 w-3/4 animate-pulse rounded bg-bone/70" />
-            <div className="h-3 w-full animate-pulse rounded bg-bone/50" />
-            <div className="h-9 w-full animate-pulse rounded-full bg-bone/60" />
-          </div>
-        </div>
+        <SkeletonCard key={i} i={i} />
       ))}
     </div>
+  );
+}
+
+/** Skeleton cards to append while the next page loads (infinite scroll). */
+export function SkeletonCards({ count = 3 }: { count?: number }) {
+  return (
+    <>
+      {Array.from({ length: count }).map((_, i) => (
+        <SkeletonCard key={i} i={i} />
+      ))}
+    </>
   );
 }
 

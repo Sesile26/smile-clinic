@@ -12,6 +12,7 @@ import type {
   ApiProduct,
   CreateOrderInput,
   NpOption,
+  ProductsPage,
   ShopErrorCode,
 } from "@/lib/shop-types";
 
@@ -44,6 +45,37 @@ export async function getProducts(signal?: AbortSignal): Promise<ApiProduct[]> {
   const res = await fetch("/api/products", { cache: "no-store", signal });
   if (!res.ok) throw await toError(res);
   return (await res.json()) as ApiProduct[];
+}
+
+export interface ProductFeedParams {
+  q?: string;
+  /** Category id, "all", or the UNCATEGORIZED sentinel. */
+  category?: string;
+  cursor?: string | null;
+  limit?: number;
+}
+
+/**
+ * One page of the storefront feed. Passing `limit` switches the API into
+ * cursor-pagination mode (search + category + stock-first sort happen server
+ * side). getProducts() (no params) keeps returning the full array for the
+ * admin list, cart validation, and the offline mirror.
+ */
+export async function getProductsPage(
+  params: ProductFeedParams,
+  signal?: AbortSignal,
+): Promise<ProductsPage> {
+  const sp = new URLSearchParams();
+  sp.set("limit", String(params.limit ?? 24));
+  if (params.q?.trim()) sp.set("q", params.q.trim());
+  if (params.category && params.category !== "all") sp.set("category", params.category);
+  if (params.cursor) sp.set("cursor", params.cursor);
+  const res = await fetch(`/api/products?${sp.toString()}`, {
+    cache: "no-store",
+    signal,
+  });
+  if (!res.ok) throw await toError(res);
+  return (await res.json()) as ProductsPage;
 }
 
 export interface ProductInput {

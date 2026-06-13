@@ -1,13 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/cn";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { displayM } from "@/lib/typography";
 import { Container } from "@/components/ui/Container";
-import { useProducts, useShopRole, isShopManager } from "@/hooks/useShop";
-import type { ApiProduct } from "@/lib/shop-types";
+import {
+  useProductFeed,
+  useShopRole,
+  isShopManager,
+  saveFeedScroll,
+} from "@/hooks/useShop";
 import { useCart } from "./CartContext";
 import { ProductCard } from "./ProductCard";
 import { CartDrawer } from "./CartDrawer";
@@ -16,7 +20,13 @@ import {
   UNCATEGORIZED,
   UNCATEGORIZED_LABEL,
 } from "./useShopCategories";
-import { EmptyState, ErrorBanner, OfflineNotice, SkeletonGrid } from "./StatePanels";
+import {
+  EmptyState,
+  ErrorBanner,
+  OfflineNotice,
+  SkeletonCards,
+  SkeletonGrid,
+} from "./StatePanels";
 
 export function ShopPage() {
   // CartProvider lives in the root layout — the cart must survive navigating
@@ -28,47 +38,61 @@ function ShopInner() {
   const { isOnline: online } = useOnlineStatus();
   const { add, items, count } = useCart();
   const { role } = useShopRole();
-  // STAFF/ADMIN no longer manage products HERE — /shop is a pure storefront.
-  // We only use the flag to hide the cart (they don't buy) and to show a small
-  // "manage in admin" link. All management moved to /admin/products + /admin/categories.
   const canManage = isShopManager(role);
 
-  const { products, state, reload, source } = useProducts(online);
-  // Categories power the catalog FILTER only (management lives in the admin).
-  const cats = useShopCategories(reload);
+  const feed = useProductFeed(online);
+  const cats = useShopCategories(feed.reload);
 
-  const [category, setCategory] = useState<string>("all");
   const [cartOpen, setCartOpen] = useState(false);
-
-  const uncategorizedCount = useMemo(
-    () => products.filter((p) => !p.categoryId).length,
-    [products],
-  );
-  const validIds = useMemo(
-    () => new Set(cats.categories.map((c) => c.id)),
-    [cats.categories],
-  );
-  const activeCategory =
-    category !== "all" && category !== UNCATEGORIZED && !validIds.has(category)
-      ? "all"
-      : category;
-
-  const filtered = useMemo(() => {
-    const inCategory = (p: ApiProduct) => {
-      if (activeCategory === "all") return true;
-      if (activeCategory === UNCATEGORIZED) return !p.categoryId;
-      return p.categoryId === activeCategory;
-    };
-    const list = products.filter(inCategory);
-    const rank = (p: ApiProduct) => (p.isActive && p.inStock ? 1 : 0);
-    return [...list].sort((a, b) => rank(b) - rank(a));
-  }, [products, activeCategory]);
 
   const qtyById = useMemo(() => {
     const m = new Map<string, number>();
     for (const i of items) m.set(i.product.id, i.qty);
     return m;
   }, [items]);
+
+  // ── Restore scroll on back-navigation; save it when leaving ───────────────
+  useEffect(() => {
+    if (feed.restoredScrollY != null) {
+      window.scrollTo(0, feed.restoredScrollY);
+    }
+    return () => saveFeedScroll(window.scrollY);
+    // run once on mount/unmount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Scroll to top when the filters change (but NOT on the initial restore) ─
+  const filterKeyRef = useRef(feed.filterKey);
+  useEffect(() => {
+    if (filterKeyRef.current !== feed.filterKey) {
+      filterKeyRef.current = feed.filterKey;
+      window.scrollTo({ top: 0 });
+    }
+  }, [feed.filterKey]);
+
+  // ── Infinite scroll: observe the sentinel; load the next page on view ──────
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const loadMore = feed.loadMore;
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !online || !feed.hasMore) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) loadMore();
+      },
+      { rootMargin: "600px 0px" }, // prefetch a bit before it's visible
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [online, feed.hasMore, feed.loadingMore, feed.state, loadMore]);
+
+  const hasFilters = feed.query.trim() !== "" || feed.category !== "all";
+
+  const categoryOptions = [
+    { value: "all", label: "Усі" },
+    ...cats.categories.map((c) => ({ value: c.id, label: c.name })),
+    { value: UNCATEGORIZED, label: UNCATEGORIZED_LABEL },
+  ];
 
   return (
     <Container className="py-10 sm:py-14">
@@ -88,7 +112,6 @@ function ShopInner() {
         </div>
 
         <div className="flex shrink-0 items-center gap-3 self-start lg:self-auto">
-          {/* Managers manage in the admin panel — small link, not inline tools. */}
           {canManage && (
             <Link
               href="/admin/products"
@@ -99,7 +122,6 @@ function ShopInner() {
             </Link>
           )}
 
-          {/* Cart is buyer-only — STAFF/ADMIN don't purchase. */}
           {!canManage && (
             <button
               type="button"
@@ -125,22 +147,35 @@ function ShopInner() {
 
       {!online && <OfflineNotice className="mb-5" />}
 
+      {/* Search */}
+      <div className="mb-4">
+        <label htmlFor="shop-search" className="sr-only">Пошук товарів</label>
+        <div className="relative max-w-[420px]">
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-navy-400">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+          <input
+            id="shop-search"
+            type="search"
+            value={feed.query}
+            onChange={(e) => feed.setQuery(e.target.value)}
+            placeholder="Пошук за назвою або описом"
+            className="w-full rounded-full border border-[color:var(--line-2)] bg-white py-2.5 pl-10 pr-3.5 text-sm text-navy-900 outline-none transition-[border,box-shadow] duration-200 placeholder:text-navy-400/60 focus:border-navy-900 focus:shadow-[0_0_0_3px_rgba(0,201,167,0.18)]"
+          />
+        </div>
+      </div>
+
       {/* Category filter */}
       <div className="mb-6 flex flex-wrap gap-2" role="group" aria-label="Фільтр за категорією">
-        {[
-          { value: "all", label: "Усі" },
-          ...cats.categories.map((c) => ({ value: c.id, label: c.name })),
-          ...(uncategorizedCount > 0
-            ? [{ value: UNCATEGORIZED, label: UNCATEGORIZED_LABEL }]
-            : []),
-        ].map(({ value, label }) => {
-          const active = activeCategory === value;
+        {categoryOptions.map(({ value, label }) => {
+          const active = feed.category === value;
           return (
             <button
               key={value}
               type="button"
               aria-pressed={active}
-              onClick={() => setCategory(value)}
+              onClick={() => feed.setCategory(value)}
               className={cn(
                 "rounded-full border px-4 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-mint",
                 active
@@ -155,35 +190,65 @@ function ShopInner() {
       </div>
 
       {/* Catalog */}
-      {state === "loading" ? (
+      {feed.state === "loading" ? (
         <SkeletonGrid />
-      ) : state === "error" ? (
-        <ErrorBanner onRetry={reload} />
-      ) : filtered.length === 0 ? (
-        <EmptyState
-          title="Немає товарів"
-          hint="Каталог поки порожній. Завітайте трохи згодом."
-        />
+      ) : feed.state === "error" ? (
+        <ErrorBanner onRetry={feed.reload} />
+      ) : feed.items.length === 0 ? (
+        hasFilters ? (
+          <EmptyState
+            title="Нічого не знайдено"
+            hint="Спробуйте інший запит або категорію."
+          />
+        ) : (
+          <EmptyState title="Немає товарів" hint="Каталог поки порожній. Завітайте трохи згодом." />
+        )
       ) : (
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((p) => (
-            <ProductCard
-              key={p.id}
-              product={p}
-              disabled={!online}
-              inCartQty={qtyById.get(p.id) ?? 0}
-              onAdd={() => add(p)}
-              // STAFF/ADMIN browse but don't buy here (no cart) → no add button.
-              purchasable={!canManage}
-            />
-          ))}
-        </div>
-      )}
+        <>
+          {/* Count */}
+          <p className="mb-3 text-xs tabular-nums text-navy-400">
+            Показано {feed.items.length} із {feed.total}
+          </p>
 
-      {source === "mirror" && filtered.length > 0 && (
-        <p className="mt-4 text-xs text-navy-400">
-          Показано збережений каталог (офлайн). Оформлення доступне лише онлайн.
-        </p>
+          {/* PERF: the grid appends every loaded page, so the DOM grows with
+              how far the user scrolls. Fine for demo-sized catalogs; for a very
+              large catalog add windowing (e.g. @tanstack/react-virtual) or cap
+              the rendered window so the node count stays bounded. */}
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {feed.items.map((p) => (
+              <ProductCard
+                key={p.id}
+                product={p}
+                disabled={!online}
+                inCartQty={qtyById.get(p.id) ?? 0}
+                onAdd={() => add(p)}
+                purchasable={!canManage}
+              />
+            ))}
+            {feed.loadingMore && <SkeletonCards count={3} />}
+          </div>
+
+          {/* Sentinel + end states. The sentinel sits ABOVE the footer with a
+              bounded prefetch margin, so once hasMore=false it stops firing and
+              the footer is freely reachable. */}
+          {online && feed.hasMore && <div ref={sentinelRef} aria-hidden="true" className="h-px" />}
+
+          {!feed.hasMore && (
+            <p className="mt-8 text-center text-sm text-navy-400">Це всі товари</p>
+          )}
+          {!online && (
+            <p className="mt-4 text-xs text-navy-400">
+              Показано збережений каталог (офлайн). Оформлення доступне лише онлайн.
+            </p>
+          )}
+
+          {/* Polite live region — announces new items without moving focus. */}
+          <p aria-live="polite" className="sr-only">
+            {feed.loadingMore
+              ? "Завантаження товарів…"
+              : `Показано ${feed.items.length} із ${feed.total} товарів`}
+          </p>
+        </>
       )}
 
       {!canManage && (

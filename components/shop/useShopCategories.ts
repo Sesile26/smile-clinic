@@ -8,6 +8,7 @@ import {
   renameCategory,
   ShopApiError,
 } from "@/lib/shop-client";
+import { UNCATEGORIZED_VALUE } from "@/lib/shop-types";
 
 export interface ShopCategory {
   id: string;
@@ -23,7 +24,7 @@ export interface MutationResult {
 }
 
 /** Sentinel filter value + label for products without a category. */
-export const UNCATEGORIZED = "__uncategorized__";
+export const UNCATEGORIZED = UNCATEGORIZED_VALUE;
 export const UNCATEGORIZED_LABEL = "Без категорії";
 
 export interface UseShopCategories {

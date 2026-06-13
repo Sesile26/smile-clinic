@@ -32,6 +32,20 @@ export interface ApiCategory {
   productCount: number;
 }
 
+/** One page of the storefront feed (cursor pagination). */
+export interface ProductsPage {
+  items: ApiProduct[];
+  /** Opaque cursor for the next page, or null when there are no more. */
+  nextCursor: string | null;
+  hasMore: boolean;
+  /** Total matching the current filters (search + category), across all pages. */
+  total: number;
+}
+
+/** Sentinel category filter value for products with no category. Mirrors
+ *  useShopCategories.UNCATEGORIZED — shared so the API and UI agree. */
+export const UNCATEGORIZED_VALUE = "__uncategorized__";
+
 /** One line a client wants to order — only id + quantity are trusted. */
 export interface OrderItemInput {
   productId: string;
