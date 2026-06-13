@@ -192,6 +192,8 @@ export async function notifyManagersOfNewBooking(input: {
   doctorId: string;
   patientId: string;
   date: Date;
+  /** Manual staff bookings are already confirmed — adjust the wording. */
+  confirmed?: boolean;
 }): Promise<void> {
   // Future bookings: no instant push (they appear in the pending list). Check
   // first, before any queries, so we do zero work off the hot path.
@@ -220,7 +222,8 @@ export async function notifyManagersOfNewBooking(input: {
 
   const patientName = patient?.name ?? "Пацієнт";
   const title = "Новий запис на сьогодні";
-  const body = `Новий запис на сьогодні, ${timeFmt.format(input.date)} — ${patientName} (потребує підтвердження).`;
+  const suffix = input.confirmed ? "(підтверджено)" : "(потребує підтвердження)";
+  const body = `Новий запис на сьогодні, ${timeFmt.format(input.date)} — ${patientName} ${suffix}.`;
 
   await Promise.all(
     [...recipients].map((userId) =>

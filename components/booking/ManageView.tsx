@@ -35,12 +35,14 @@ import {
   type SlotStatus,
   type ViewMode,
 } from "./data";
+import { btnBase, btnMint } from "@/lib/buttons";
 import { CalendarToolbar } from "./CalendarToolbar";
 import { PendingAppointments } from "./PendingAppointments";
 import { WeekCalendar } from "./WeekCalendar";
 import { MonthCalendar } from "./MonthCalendar";
 import { Select } from "./Select";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { ManualBookingModal } from "./ManualBookingModal";
 import {
   EmptyState,
   ErrorBanner,
@@ -92,6 +94,7 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
   const [busy, setBusy] = useState(false);
 
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+  const [manualOpen, setManualOpen] = useState(false);
 
   const { doctors, state: doctorsState } = useDoctors(online);
 
@@ -284,6 +287,22 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
         <Legend />
       </div>
 
+      {/* Manual booking — record a patient by hand (mock wizard). */}
+      {online && activeDoctorId && (
+        <div className="mb-5 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setManualOpen(true)}
+            className={cn(btnBase, btnMint, "px-5 py-2.5 text-sm")}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            Записати пацієнта
+          </button>
+        </div>
+      )}
+
       {/* Pending appointments awaiting this doctor's confirm/reject. */}
       <PendingAppointments
         doctorId={activeDoctorId}
@@ -368,6 +387,17 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
           cancelLabel="Скасувати"
           onConfirm={applyConfirm}
           onCancel={() => setConfirm(null)}
+        />
+      )}
+
+      {manualOpen && (
+        <ManualBookingModal
+          doctors={doctors}
+          lockedDoctorId={identity.role === "DOCTOR" ? identity.doctorId : null}
+          defaultDoctorId={activeDoctorId}
+          today={today}
+          onBooked={reload}
+          onClose={() => setManualOpen(false)}
         />
       )}
     </div>
