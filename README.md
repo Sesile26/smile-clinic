@@ -4,6 +4,42 @@
 
 ---
 
+## Запуск проєкту з нуля
+
+```bash
+# 1. Клон + залежності
+git clone <repo> && cd smile-clinic
+npm install
+
+# 2. Середовище
+cp .env.example .env
+#    → впишіть DATABASE_URL (PostgreSQL) і AUTH_SECRET (npx auth secret).
+#    Google OAuth / Nova Poshta — опційні (розділи нижче).
+
+# 3. Схема БД + демо-дані ОДНІЄЮ командою
+npx prisma migrate dev        # накотить міграції ТА авто-засідить демо-дані
+
+# 4. Запуск
+npm run dev                   # http://localhost:3000
+```
+
+`prisma migrate dev` (і `prisma migrate reset`) **автоматично** виконують seed
+(команда в `prisma.config.ts → migrations.seed`, продубльована в
+`package.json → prisma.seed`). На **проді** `migrate deploy` seed НЕ запускає —
+окремим кроком: `npx prisma migrate deploy && npm run db:seed`.
+
+Один скрипт (`prisma/seed.ts`) наповнює **усе** в порядку залежностей: акаунти
+(ADMIN / STAFF / DOCTOR + 8 пацієнтів-покупців), довідник спеціальностей,
+8 категорій, **100 товарів**, **100 замовлень** (рівномірні статуси, дати за
+кілька місяців, мікс самовивіз / Нова Пошта). **Ідемпотентний**: акаунти /
+категорії / спеціальності — `upsert`; товари / замовлення — очистити-і-залити
+(рівно 100 щоразу). Працює і на свіжій базі (після `migrate`), і на заповненій.
+
+> Демо-розклад лікаря (слоти бронювання) — окремий опційний скрипт:
+> `node prisma/seed.mjs`.
+
+---
+
 ## Авторизація через Google (Auth.js v5)
 
 ### 1. Створити OAuth credentials у Google Cloud Console
@@ -92,9 +128,16 @@ npm run dev
 | DOCTOR | `doctor@smileclinic.test` | `Password123` | Свій розклад (Наталія Лисенко · Терапевтична стоматологія) |
 | PATIENT | `patient1@smileclinic.test` | `Password123` | Бронювання вільних слотів |
 | PATIENT | `patient2@smileclinic.test` | `Password123` | Бронювання вільних слотів |
+| PATIENT | `patient3@…` … `patient8@smileclinic.test` | `Password123` | Демо-покупці (ті самі правила) |
 
-Дані описані в `prisma/seed.ts` — **ідемпотентно** (upsert за email / `Doctor.userId`),
-тож повторний запуск seed не дублює акаунти й не падає на унікальних обмеженнях.
+Окрім акаунтів, seed наповнює **8 категорій**, довідник спеціальностей,
+**100 товарів** (≈13% «немає в наявності») та **100 замовлень** (по 25 на статус
+pending/confirmed/completed/cancelled; дати за кілька місяців; ~50/50 самовивіз
+і Нова Пошта; `total` рахується із позицій).
+
+Дані описані в `prisma/seed.ts`. **Ідемпотентність**: акаунти / категорії /
+спеціальності — `upsert` (за email / name / `Doctor.userId`); товари / замовлення —
+очистити-і-залити (рівно 100 щоразу). Повторний запуск не дублює й не падає.
 
 ### Засідити локально
 
