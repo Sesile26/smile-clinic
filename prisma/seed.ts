@@ -30,13 +30,13 @@ import {
 } from "../lib/generated/prisma/enums";
 import { PrismaPg } from "@prisma/adapter-pg";
 import bcrypt from "bcryptjs";
+import { slugify } from "../lib/slug";
 
 // TEST DATA ONLY. One shared plaintext password for every seeded account;
 // bcrypt-hashed (cost 12) before storage, never written raw.
 const TEST_PASSWORD = "Password123";
 const BCRYPT_COST = 12;
 
-const PRODUCT_COUNT = 100;
 const ORDER_COUNT = 100;
 
 // ─── Deterministic PRNG (so a re-seed produces the same demo set) ────────────
@@ -155,14 +155,18 @@ const CATALOG: CatTemplate[] = [
 interface GenProduct {
   name: string;
   description: string;
+  longDescription: string;
   price: number;
   stock: number;
   categoryName: string;
   imageUrl: string;
+  images: string[];
 }
 function generateProducts(): GenProduct[] {
   const out: GenProduct[] = [];
   let idx = 0;
+  const ph = (text: string) =>
+    `https://placehold.co/600x450/E8F5F1/0A1628?text=${encodeURIComponent(text)}`;
   for (const t of CATALOG) {
     const combos: { brand: string; variant: string }[] = [];
     for (const brand of t.brands) {
@@ -172,15 +176,24 @@ function generateProducts(): GenProduct[] {
       const name = `${t.noun} ${brand} «${variant}»`;
       const price = int(t.price[0], t.price[1]);
       // Deterministically ~13% out of stock (every 8th product), rest varied.
-      const stock = idx++ % 8 === 0 ? 0 : int(1, 60);
+      const stock = idx % 8 === 0 ? 0 : int(1, 60);
+      const imgCount = 2 + (idx % 2); // 2–3 photos per product (gallery demo)
+      const images = [ph(brand), ...Array.from({ length: imgCount - 1 }, (_, i) => ph(`${brand} ${i + 2}`))];
       out.push({
         name,
         description: `${brand}: ${variant}. ${t.blurb}`,
+        longDescription:
+          `${name} — ${t.blurb} Засіб ${brand} у виконанні «${variant}» поєднує щоденну ефективність ` +
+          `із бережним доглядом за порожниною рота. Рекомендуємо пацієнтам клініки для регулярного ` +
+          `використання вдома — помітний результат за кілька тижнів. Зберігати в сухому місці за ` +
+          `кімнатної температури, берегти від дітей. Виробник залишає за собою право оновлювати склад.`,
         price,
         stock,
         categoryName: t.category,
-        imageUrl: `https://placehold.co/600x450/E8F5F1/0A1628?text=${encodeURIComponent(brand)}`,
+        imageUrl: images[0],
+        images,
       });
+      idx++;
     }
   }
   return out; // exactly sum(counts) = 100
@@ -268,10 +281,11 @@ async function main() {
     // ── 5. Categories (upsert) ────────────────────────────────────────────────
     const categoryMap = new Map<string, string>();
     for (const t of CATALOG) {
+      const slug = slugify(t.category);
       const cat = await prisma.category.upsert({
         where: { name: t.category },
-        update: {},
-        create: { name: t.category },
+        update: { slug },
+        create: { name: t.category, slug },
       });
       categoryMap.set(t.category, cat.id);
     }
@@ -287,10 +301,12 @@ async function main() {
       data: gen.map((p) => ({
         name: p.name,
         description: p.description,
+        longDescription: p.longDescription,
         price: new Prisma.Decimal(p.price.toFixed(2)),
         stock: p.stock,
         categoryId: categoryMap.get(p.categoryName) ?? null,
         imageUrl: p.imageUrl,
+        images: p.images,
         isActive: true,
       })),
     });

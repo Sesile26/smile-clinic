@@ -29,6 +29,8 @@ export interface ApiProduct {
 export interface ApiCategory {
   id: string;
   name: string;
+  /** URL slug for the storefront category filter (?category=<slug>). */
+  slug: string;
   productCount: number;
 }
 
@@ -40,6 +42,17 @@ export interface ProductsPage {
   hasMore: boolean;
   /** Total matching the current filters (search + category), across all pages. */
   total: number;
+}
+
+/** Single-product detail (GET /api/products/[id]) — the card fields plus the
+ *  rich page content and a few same-category products. */
+export interface ApiProductDetail extends ApiProduct {
+  longDescription: string | null;
+  /** Category slug for the breadcrumb / "back to category" link (?category=). */
+  categorySlug: string | null;
+  /** Gallery photos; may be empty (then the UI falls back to imageUrl/glyph). */
+  images: string[];
+  similar: ApiProduct[];
 }
 
 /** Sentinel category filter value for products with no category. Mirrors

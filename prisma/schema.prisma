@@ -198,6 +198,8 @@ model AvailabilitySlot {
 model Category {
   id        String    @id @default(cuid())
   name      String    @unique
+  // URL slug for the storefront category filter (?category=zubni-pasty).
+  slug      String    @unique
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   products  Product[]
@@ -206,10 +208,15 @@ model Category {
 model Product {
   id          String    @id @default(cuid())
   name        String
+  // Короткий опис — картка каталогу + пошук. Розгорнутий текст для сторінки
+  // товару живе в longDescription (щоб пошук/картка лишались легкими).
   description String?
+  longDescription String? @db.Text
   // Гроші — Decimal, не Float (без похибок округлення). UAH.
   price       Decimal   @db.Decimal(10, 2)
+  // Головне фото (картка) + додаткові фото галереї на сторінці товару.
   imageUrl    String?
+  images      String[]  @default([])
   // Категорія тепер окрема модель. SetNull — видалення категорії лишає товари
   // без категорії (не нищить їх); саму політику видалення вирішує API.
   categoryId  String?

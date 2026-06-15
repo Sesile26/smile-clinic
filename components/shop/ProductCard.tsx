@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { cn } from "@/lib/cn";
 import { IcoChild, IcoShield, IcoSparkle, IcoTooth } from "@/components/icons";
 import type { ApiProduct } from "@/lib/shop-types";
@@ -59,7 +60,7 @@ export function ProductCard({
   const showImage = !!product.imageUrl && !imgError;
 
   return (
-    <article className="group flex flex-col overflow-hidden rounded-2xl border border-[color:var(--line)] bg-white transition-[transform,box-shadow] duration-300 ease-smooth hover:-translate-y-0.5 hover:shadow-s2">
+    <article className="group relative flex flex-col overflow-hidden rounded-2xl border border-[color:var(--line)] bg-white transition-[transform,box-shadow] duration-300 ease-smooth hover:-translate-y-0.5 hover:shadow-s2">
       {/* Image (real photo if provided, else brand gradient + glyph) */}
       <div className="relative aspect-[4/3] overflow-hidden bg-[linear-gradient(150deg,#0F1E36_0%,#0A1628_100%)]">
         {showImage ? (
@@ -105,8 +106,16 @@ export function ProductCard({
 
       {/* Body */}
       <div className="flex flex-1 flex-col p-5">
+        {/* Title is the card's stretched link: its ::before covers the whole
+            article, so clicking anywhere (except the buy button below, which is
+            raised) navigates to the product page. */}
         <h3 className="font-serif text-[20px] leading-tight tracking-[-0.01em] text-navy-900">
-          {product.name}
+          <Link
+            href={`/shop/${product.id}`}
+            className="outline-none transition-colors before:absolute before:inset-0 before:rounded-2xl before:content-[''] hover:text-mint-600 focus-visible:before:ring-2 focus-visible:before:ring-mint"
+          >
+            {product.name}
+          </Link>
         </h3>
         {product.description && (
           <p className="mt-1.5 flex-1 text-sm leading-[1.5] text-navy-400">
@@ -132,7 +141,13 @@ export function ProductCard({
           {purchasable && (
             <button
               type="button"
-              onClick={onAdd}
+              // Raised above the title's stretched ::before so a click adds to
+              // cart instead of navigating; stop propagation belt-and-braces.
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onAdd();
+              }}
               disabled={addDisabled}
               aria-label={
                 outOfStock
@@ -140,7 +155,7 @@ export function ProductCard({
                   : `Додати «${product.name}» в кошик`
               }
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-colors duration-200",
+                "relative z-[1] inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-colors duration-200",
                 "focus:outline-none focus-visible:ring-2 focus-visible:ring-mint focus-visible:ring-offset-1",
                 "disabled:cursor-not-allowed disabled:opacity-50",
                 "bg-navy-900 text-white hover:bg-black",

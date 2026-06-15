@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getActor, isStaff, shopError } from "@/lib/shop-server";
+import { slugify } from "@/lib/slug";
 import type { ApiCategory } from "@/lib/shop-types";
 
 /**
@@ -46,12 +47,13 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   try {
     const updated = await prisma.category.update({
       where: { id },
-      data: { name: name.trim() },
-      select: { id: true, name: true, _count: { select: { products: true } } },
+      data: { name: name.trim(), slug: slugify(name) },
+      select: { id: true, name: true, slug: true, _count: { select: { products: true } } },
     });
     return NextResponse.json<ApiCategory>({
       id: updated.id,
       name: updated.name,
+      slug: updated.slug,
       productCount: updated._count.products,
     });
   } catch (err) {

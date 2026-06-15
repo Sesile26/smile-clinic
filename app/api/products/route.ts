@@ -128,12 +128,33 @@ export async function GET(request: Request) {
     ? decodeCursor(searchParams.get("cursor")!)
     : null;
 
+  // The URL carries a category SLUG — resolve it to an id (or null for
+  // "Без категорії"). An unknown slug (removed / bad shared link) → empty.
+  let categoryId: string | null | undefined; // undefined → no category filter
+  if (category === UNCATEGORIZED_VALUE) {
+    categoryId = null;
+  } else if (category && category !== "all") {
+    const cat = await prisma.category.findUnique({
+      where: { slug: category },
+      select: { id: true },
+    });
+    if (!cat) {
+      return NextResponse.json<ProductsPage>({
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+        total: 0,
+      });
+    }
+    categoryId = cat.id;
+  }
+
   // Filters shared by the page query and the total count.
   const filters: Prisma.Sql[] = [Prisma.sql`p."isActive" = true`];
-  if (category === UNCATEGORIZED_VALUE) {
+  if (categoryId === null) {
     filters.push(Prisma.sql`p."categoryId" IS NULL`);
-  } else if (category && category !== "all") {
-    filters.push(Prisma.sql`p."categoryId" = ${category}`);
+  } else if (typeof categoryId === "string") {
+    filters.push(Prisma.sql`p."categoryId" = ${categoryId}`);
   }
   if (q) {
     const like = `%${escapeLike(q)}%`;

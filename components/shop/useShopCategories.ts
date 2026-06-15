@@ -13,6 +13,8 @@ import { UNCATEGORIZED_VALUE } from "@/lib/shop-types";
 export interface ShopCategory {
   id: string;
   name: string;
+  /** URL slug for the storefront filter (?category=<slug>). */
+  slug: string;
   /** Products referencing this category (from the server _count). */
   count: number;
 }
@@ -59,7 +61,7 @@ export function useShopCategories(onMutated?: () => void): UseShopCategories {
     getCategories(ac.signal)
       .then((rows) => {
         setCategories(
-          rows.map((c) => ({ id: c.id, name: c.name, count: c.productCount })),
+          rows.map((c) => ({ id: c.id, name: c.name, slug: c.slug, count: c.productCount })),
         );
         setState("ready");
       })

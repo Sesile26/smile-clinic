@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getActor, isStaff, shopError } from "@/lib/shop-server";
+import { slugify } from "@/lib/slug";
 import type { ApiCategory } from "@/lib/shop-types";
 
 /**
@@ -16,16 +17,17 @@ import type { ApiCategory } from "@/lib/shop-types";
 function toApiCategory(c: {
   id: string;
   name: string;
+  slug: string;
   _count: { products: number };
 }): ApiCategory {
-  return { id: c.id, name: c.name, productCount: c._count.products };
+  return { id: c.id, name: c.name, slug: c.slug, productCount: c._count.products };
 }
 
 export async function GET() {
   try {
     const rows = await prisma.category.findMany({
       orderBy: { name: "asc" },
-      select: { id: true, name: true, _count: { select: { products: true } } },
+      select: { id: true, name: true, slug: true, _count: { select: { products: true } } },
     });
     return NextResponse.json<ApiCategory[]>(rows.map(toApiCategory));
   } catch (err) {
@@ -54,8 +56,8 @@ export async function POST(request: Request) {
 
   try {
     const created = await prisma.category.create({
-      data: { name: name.trim() },
-      select: { id: true, name: true, _count: { select: { products: true } } },
+      data: { name: name.trim(), slug: slugify(name) },
+      select: { id: true, name: true, slug: true, _count: { select: { products: true } } },
     });
     return NextResponse.json<ApiCategory>(toApiCategory(created), {
       status: 201,

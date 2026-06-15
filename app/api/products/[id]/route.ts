@@ -8,18 +8,70 @@ import {
   toApiProduct,
   PRODUCT_SELECT,
 } from "@/lib/shop-server";
-import type { ApiProduct } from "@/lib/shop-types";
+import type { ApiProduct, ApiProductDetail } from "@/lib/shop-types";
 
 /**
- * Single product mutations — STAFF/ADMIN only (re-checked server-side). Both
- * handlers are staff-gated, so the response includes the exact stock.
- *
- *  PATCH  → edit fields (name, description, price, stock, category, imageUrl).
+ *  GET    → public product detail (with category + a few same-category items).
+ *           Role-gated stock: STAFF/ADMIN get the exact `stock`, buyers/guests
+ *           only `inStock` (same rule as the catalog). 404 when missing or
+ *           soft-deleted (isActive=false).
+ *  PATCH  → edit fields. STAFF/ADMIN only (re-checked server-side).
  *  DELETE → SOFT delete (isActive=false). We never hard-delete: OrderItem rows
  *           reference products via a Restrict FK, so removing a product with
  *           order history would be blocked anyway. Soft delete keeps history
  *           intact and hides the item from the catalog.
  */
+
+// Detail select = the card columns + the page-only rich fields (+ category slug).
+const DETAIL_SELECT = {
+  ...PRODUCT_SELECT,
+  category: { select: { name: true, slug: true } },
+  longDescription: true,
+  images: true,
+} as const;
+
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  // Role decides ONLY whether the exact stock is exposed — the page is public.
+  const actor = await getActor();
+  const includeStock = !!actor && isStaff(actor.role);
+
+  try {
+    const p = await prisma.product.findUnique({
+      where: { id },
+      select: DETAIL_SELECT,
+    });
+    // Soft-deleted or unknown → 404 (a buyer must not reach an inactive item).
+    if (!p || !p.isActive) {
+      return shopError(404, "not_found", "Товар не знайдено");
+    }
+
+    // A few other active products in the same category (in-stock first).
+    const similar = p.categoryId
+      ? await prisma.product.findMany({
+          where: { isActive: true, categoryId: p.categoryId, id: { not: id } },
+          orderBy: [{ stock: "desc" }, { createdAt: "desc" }],
+          take: 4,
+          select: PRODUCT_SELECT,
+        })
+      : [];
+
+    const detail: ApiProductDetail = {
+      ...toApiProduct(p, includeStock),
+      longDescription: p.longDescription,
+      categorySlug: p.category?.slug ?? null,
+      images: p.images,
+      similar: similar.map((s) => toApiProduct(s, includeStock)),
+    };
+    return NextResponse.json<ApiProductDetail>(detail);
+  } catch (err) {
+    console.error("GET /api/products/[id] failed", err);
+    return shopError(500, "server", "Не вдалося завантажити товар");
+  }
+}
 
 export async function PATCH(
   request: Request,

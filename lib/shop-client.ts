@@ -10,6 +10,7 @@ import type {
   ApiError,
   ApiOrder,
   ApiProduct,
+  ApiProductDetail,
   CreateOrderInput,
   NpOption,
   ProductsPage,
@@ -45,6 +46,18 @@ export async function getProducts(signal?: AbortSignal): Promise<ApiProduct[]> {
   const res = await fetch("/api/products", { cache: "no-store", signal });
   if (!res.ok) throw await toError(res);
   return (await res.json()) as ApiProduct[];
+}
+
+/** Single product detail. null on 404 (missing / soft-deleted) → "not found"
+ *  state; other failures throw a {@link ShopApiError}. */
+export async function getProduct(
+  id: string,
+  signal?: AbortSignal,
+): Promise<ApiProductDetail | null> {
+  const res = await fetch(`/api/products/${id}`, { cache: "no-store", signal });
+  if (res.status === 404) return null;
+  if (!res.ok) throw await toError(res);
+  return (await res.json()) as ApiProductDetail;
 }
 
 export interface ProductFeedParams {

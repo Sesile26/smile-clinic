@@ -7,6 +7,7 @@ import { db, type LocalProduct } from "@/lib/db";
 import { getProducts, getProductsPage } from "@/lib/shop-client";
 import type { ApiProduct } from "@/lib/shop-types";
 import { UNCATEGORIZED_VALUE } from "@/lib/shop-types";
+import { slugify } from "@/lib/slug";
 
 export type LoadState = "loading" | "ready" | "error";
 export type AppRole = "PATIENT" | "DOCTOR" | "STAFF" | "ADMIN";
@@ -177,12 +178,14 @@ function offlineFeed(
 ): ApiProduct[] {
   const ql = q.trim().toLocaleLowerCase("uk");
   const list = rows.filter((p) => {
+    // `category` is a SLUG; the mirror has no slug, so match the slugified
+    // category name (same slugify the server/seed use).
     const inCat =
       category === "all"
         ? true
         : category === UNCATEGORIZED_VALUE
           ? !p.categoryId
-          : p.categoryId === category;
+          : slugify(p.categoryName ?? "") === category;
     if (!inCat) return false;
     if (!ql) return true;
     return (
@@ -197,10 +200,6 @@ function offlineFeed(
 }
 
 export interface UseProductFeed {
-  query: string;
-  setQuery: (v: string) => void;
-  category: string;
-  setCategory: (v: string) => void;
   items: ApiProduct[];
   total: number;
   hasMore: boolean;
@@ -215,44 +214,45 @@ export interface UseProductFeed {
 }
 
 /**
- * Storefront catalog feed. Online → cursor-paginated GET /api/products with
+ * Storefront catalog feed. Filters (`query`, `category` slug) are URL-driven and
+ * passed in by ShopPage. Online → cursor-paginated GET /api/products with
  * server-side search + category + stock-first sort (infinite scroll). Offline →
  * the Dexie mirror, filtered/sorted client-side (finite, no paging). Loading is
  * DERIVED (loadedKey vs requestKey) so the fetch effect never calls setState in
- * its body.
+ * its body. A module snapshot restores loaded pages + scroll on back-navigation.
  */
-export function useProductFeed(online: boolean): UseProductFeed {
+export function useProductFeed({
+  online,
+  query,
+  category,
+}: {
+  online: boolean;
+  /** Already-debounced search string (from the URL ?q). */
+  query: string;
+  /** Category slug, "all", or the uncategorized sentinel (from the URL). */
+  category: string;
+}): UseProductFeed {
+  const q = query.trim();
   const restored = feedSnapshot;
-  const [restoredScrollY] = useState<number | null>(() =>
-    restored && online ? restored.scrollY : null,
-  );
+  // Restore only when the snapshot's filters match the current (URL) filters.
+  const matches = !!restored && online && restored.query === q && restored.category === category;
 
-  const [query, setQuery] = useState(restored?.query ?? "");
-  const [category, setCategory] = useState(restored?.category ?? "all");
-  const [effectiveQ, setEffectiveQ] = useState((restored?.query ?? "").trim());
+  const [restoredScrollY] = useState<number | null>(() => (matches ? restored!.scrollY : null));
 
-  const [items, setItems] = useState<ApiProduct[]>(restored?.items ?? []);
-  const [cursor, setCursor] = useState<string | null>(restored?.nextCursor ?? null);
-  const [hasMore, setHasMore] = useState<boolean>(restored?.hasMore ?? true);
-  const [total, setTotal] = useState<number>(restored?.total ?? 0);
+  const [items, setItems] = useState<ApiProduct[]>(matches ? restored!.items : []);
+  const [cursor, setCursor] = useState<string | null>(matches ? restored!.nextCursor : null);
+  const [hasMore, setHasMore] = useState<boolean>(matches ? restored!.hasMore : true);
+  const [total, setTotal] = useState<number>(matches ? restored!.total : 0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
-  const requestKey = `${online}|${effectiveQ}|${category}|${reloadKey}`;
-  // Seed loadedKey from the restored snapshot so the first effect run is a no-op
+  const requestKey = `${online}|${q}|${category}|${reloadKey}`;
+  // Seed loadedKey from a matching snapshot so the first effect run is a no-op
   // (no refetch on back-navigation).
   const [loadedKey, setLoadedKey] = useState<string | null>(
-    restored && online
-      ? `true|${(restored.query ?? "").trim()}|${restored.category}|0`
-      : null,
+    matches ? `true|${q}|${category}|0` : null,
   );
   const [errorKey, setErrorKey] = useState<string | null>(null);
-
-  // Debounce the search box (300ms) → effectiveQ drives the request.
-  useEffect(() => {
-    const t = window.setTimeout(() => setEffectiveQ(query.trim()), 300);
-    return () => window.clearTimeout(t);
-  }, [query]);
 
   // First page (reset) on filter / connectivity change. No synchronous setState.
   useEffect(() => {
@@ -262,7 +262,7 @@ export function useProductFeed(online: boolean): UseProductFeed {
       let cancelled = false;
       db.products.toArray().then((rows) => {
         if (cancelled) return;
-        const list = offlineFeed(rows, effectiveQ, category);
+        const list = offlineFeed(rows, q, category);
         setItems(list);
         setCursor(null);
         setHasMore(false);
@@ -273,7 +273,7 @@ export function useProductFeed(online: boolean): UseProductFeed {
         cancelled = true;
       };
     }
-    getProductsPage({ q: effectiveQ, category, limit: FEED_LIMIT }, ac.signal)
+    getProductsPage({ q, category, limit: FEED_LIMIT }, ac.signal)
       .then((page) => {
         setItems(page.items);
         setCursor(page.nextCursor);
@@ -287,15 +287,14 @@ export function useProductFeed(online: boolean): UseProductFeed {
         setErrorKey(requestKey);
       });
     return () => ac.abort();
-  }, [requestKey, online, effectiveQ, category, loadedKey]);
+  }, [requestKey, online, q, category, loadedKey]);
 
   const ready = loadedKey === requestKey && errorKey !== requestKey;
 
-  // Re-created when its inputs change; the observer effect re-subscribes to it.
   const loadMore = useCallback(() => {
     if (!online || !ready || !hasMore || loadingMore || !cursor) return;
     setLoadingMore(true);
-    getProductsPage({ q: effectiveQ, category, cursor, limit: FEED_LIMIT })
+    getProductsPage({ q, category, cursor, limit: FEED_LIMIT })
       .then((page) => {
         setItems((prev) => {
           const seen = new Set(prev.map((p) => p.id));
@@ -310,7 +309,7 @@ export function useProductFeed(online: boolean): UseProductFeed {
         /* keep current list; the sentinel can retry on next intersection */
       })
       .finally(() => setLoadingMore(false));
-  }, [online, ready, hasMore, loadingMore, cursor, effectiveQ, category]);
+  }, [online, ready, hasMore, loadingMore, cursor, q, category]);
 
   const reload = useCallback(() => {
     setErrorKey(null);
@@ -320,7 +319,7 @@ export function useProductFeed(online: boolean): UseProductFeed {
   // Keep the module snapshot current for back-navigation restore.
   useEffect(() => {
     feedSnapshot = {
-      query,
+      query: q,
       category,
       items,
       nextCursor: cursor,
@@ -328,17 +327,13 @@ export function useProductFeed(online: boolean): UseProductFeed {
       total,
       scrollY: feedSnapshot?.scrollY ?? 0,
     };
-  }, [query, category, items, cursor, hasMore, total]);
+  }, [q, category, items, cursor, hasMore, total]);
 
   const isError = errorKey === requestKey;
   const isLoading = !isError && loadedKey !== requestKey;
   const state: LoadState = isError ? "error" : isLoading ? "loading" : "ready";
 
   return {
-    query,
-    setQuery,
-    category,
-    setCategory,
     items,
     total,
     hasMore,
@@ -346,7 +341,7 @@ export function useProductFeed(online: boolean): UseProductFeed {
     loadingMore,
     loadMore,
     reload,
-    filterKey: `${effectiveQ}|${category}`,
+    filterKey: `${q}|${category}`,
     restoredScrollY,
   };
 }

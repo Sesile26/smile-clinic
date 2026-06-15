@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/cn";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { displayM } from "@/lib/typography";
@@ -12,14 +13,11 @@ import {
   isShopManager,
   saveFeedScroll,
 } from "@/hooks/useShop";
+import { UNCATEGORIZED_VALUE } from "@/lib/shop-types";
 import { useCart } from "./CartContext";
 import { ProductCard } from "./ProductCard";
 import { CartDrawer } from "./CartDrawer";
-import {
-  useShopCategories,
-  UNCATEGORIZED,
-  UNCATEGORIZED_LABEL,
-} from "./useShopCategories";
+import { useShopCategories, UNCATEGORIZED_LABEL } from "./useShopCategories";
 import {
   EmptyState,
   ErrorBanner,
@@ -30,9 +28,16 @@ import {
 
 export function ShopPage() {
   // CartProvider lives in the root layout — the cart must survive navigating
-  // away from /shop and back, so it can't be scoped to this page.
-  return <ShopInner />;
+  // away from /shop and back, so it can't be scoped to this page. ShopInner
+  // reads the URL (useSearchParams) → wrap it in Suspense.
+  return (
+    <Suspense fallback={<Container className="py-10 sm:py-14"><SkeletonGrid /></Container>}>
+      <ShopInner />
+    </Suspense>
+  );
 }
+
+const SEARCH_DEBOUNCE_MS = 300;
 
 function ShopInner() {
   const { isOnline: online } = useOnlineStatus();
@@ -40,7 +45,37 @@ function ShopInner() {
   const { role } = useShopRole();
   const canManage = isShopManager(role);
 
-  const feed = useProductFeed(online);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // ── Filters live in the URL ───────────────────────────────────────────────
+  const urlQ = searchParams.get("q") ?? "";
+  const categorySlug = searchParams.get("category") ?? "all";
+
+  const buildUrl = (next: { q?: string; category?: string }) => {
+    const q = (next.q ?? urlQ).trim();
+    const category = next.category ?? categorySlug;
+    const sp = new URLSearchParams();
+    if (q) sp.set("q", q);
+    if (category && category !== "all") sp.set("category", category);
+    const qs = sp.toString();
+    return `${pathname}${qs ? `?${qs}` : ""}`;
+  };
+
+  // Controlled search box (debounced → URL). Initialised from the URL.
+  const [searchInput, setSearchInput] = useState(urlQ);
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      if (searchInput.trim() !== urlQ.trim()) {
+        router.replace(buildUrl({ q: searchInput }));
+      }
+    }, SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchInput]);
+
+  const feed = useProductFeed({ online, query: urlQ, category: categorySlug });
   const cats = useShopCategories(feed.reload);
 
   const [cartOpen, setCartOpen] = useState(false);
@@ -53,11 +88,8 @@ function ShopInner() {
 
   // ── Restore scroll on back-navigation; save it when leaving ───────────────
   useEffect(() => {
-    if (feed.restoredScrollY != null) {
-      window.scrollTo(0, feed.restoredScrollY);
-    }
+    if (feed.restoredScrollY != null) window.scrollTo(0, feed.restoredScrollY);
     return () => saveFeedScroll(window.scrollY);
-    // run once on mount/unmount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -80,18 +112,18 @@ function ShopInner() {
       (entries) => {
         if (entries[0]?.isIntersecting) loadMore();
       },
-      { rootMargin: "600px 0px" }, // prefetch a bit before it's visible
+      { rootMargin: "600px 0px" },
     );
     io.observe(el);
     return () => io.disconnect();
   }, [online, feed.hasMore, feed.loadingMore, feed.state, loadMore]);
 
-  const hasFilters = feed.query.trim() !== "" || feed.category !== "all";
+  const hasFilters = urlQ.trim() !== "" || categorySlug !== "all";
 
   const categoryOptions = [
     { value: "all", label: "Усі" },
-    ...cats.categories.map((c) => ({ value: c.id, label: c.name })),
-    { value: UNCATEGORIZED, label: UNCATEGORIZED_LABEL },
+    ...cats.categories.map((c) => ({ value: c.slug, label: c.name })),
+    { value: UNCATEGORIZED_VALUE, label: UNCATEGORIZED_LABEL },
   ];
 
   return (
@@ -158,24 +190,23 @@ function ShopInner() {
           <input
             id="shop-search"
             type="search"
-            value={feed.query}
-            onChange={(e) => feed.setQuery(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Пошук за назвою або описом"
             className="w-full rounded-full border border-[color:var(--line-2)] bg-white py-2.5 pl-10 pr-3.5 text-sm text-navy-900 outline-none transition-[border,box-shadow] duration-200 placeholder:text-navy-400/60 focus:border-navy-900 focus:shadow-[0_0_0_3px_rgba(0,201,167,0.18)]"
           />
         </div>
       </div>
 
-      {/* Category filter */}
+      {/* Category filter — selection updates the URL (?category=<slug>) */}
       <div className="mb-6 flex flex-wrap gap-2" role="group" aria-label="Фільтр за категорією">
         {categoryOptions.map(({ value, label }) => {
-          const active = feed.category === value;
+          const active = categorySlug === value;
           return (
-            <button
+            <Link
               key={value}
-              type="button"
-              aria-pressed={active}
-              onClick={() => feed.setCategory(value)}
+              href={buildUrl({ category: value })}
+              aria-current={active ? "true" : undefined}
               className={cn(
                 "rounded-full border px-4 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-mint",
                 active
@@ -184,7 +215,7 @@ function ShopInner() {
               )}
             >
               {label}
-            </button>
+            </Link>
           );
         })}
       </div>
@@ -196,24 +227,19 @@ function ShopInner() {
         <ErrorBanner onRetry={feed.reload} />
       ) : feed.items.length === 0 ? (
         hasFilters ? (
-          <EmptyState
-            title="Нічого не знайдено"
-            hint="Спробуйте інший запит або категорію."
-          />
+          <EmptyState title="Нічого не знайдено" hint="Спробуйте інший запит або категорію." />
         ) : (
           <EmptyState title="Немає товарів" hint="Каталог поки порожній. Завітайте трохи згодом." />
         )
       ) : (
         <>
-          {/* Count */}
           <p className="mb-3 text-xs tabular-nums text-navy-400">
             Показано {feed.items.length} із {feed.total}
           </p>
 
           {/* PERF: the grid appends every loaded page, so the DOM grows with
               how far the user scrolls. Fine for demo-sized catalogs; for a very
-              large catalog add windowing (e.g. @tanstack/react-virtual) or cap
-              the rendered window so the node count stays bounded. */}
+              large catalog add windowing (e.g. @tanstack/react-virtual). */}
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {feed.items.map((p) => (
               <ProductCard
@@ -228,9 +254,6 @@ function ShopInner() {
             {feed.loadingMore && <SkeletonCards count={3} />}
           </div>
 
-          {/* Sentinel + end states. The sentinel sits ABOVE the footer with a
-              bounded prefetch margin, so once hasMore=false it stops firing and
-              the footer is freely reachable. */}
           {online && feed.hasMore && <div ref={sentinelRef} aria-hidden="true" className="h-px" />}
 
           {!feed.hasMore && (
@@ -242,7 +265,6 @@ function ShopInner() {
             </p>
           )}
 
-          {/* Polite live region — announces new items without moving focus. */}
           <p aria-live="polite" className="sr-only">
             {feed.loadingMore
               ? "Завантаження товарів…"
