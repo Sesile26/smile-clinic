@@ -12,6 +12,7 @@ import type {
   ApiError,
   ApiErrorCode,
   ApiSlot,
+  BookedSlotDetail,
   NextFreeSlot,
 } from "@/lib/booking-types";
 
@@ -72,6 +73,18 @@ export async function getNextFreeSlot(
   });
   if (!res.ok) throw await toError(res);
   return (await res.json()) as NextFreeSlot | null;
+}
+
+export async function getBookedSlotDetail(
+  slotId: string,
+  signal?: AbortSignal,
+): Promise<BookedSlotDetail> {
+  const res = await fetch(`/api/slots/${slotId}/appointment`, {
+    cache: "no-store",
+    signal,
+  });
+  if (!res.ok) throw await toError(res);
+  return (await res.json()) as BookedSlotDetail;
 }
 
 export async function createSlot(

@@ -1,22 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { cn } from "@/lib/cn";
-import { ShopApiError } from "@/lib/shop-client";
 import {
+  getAdminPatient,
   getAdminPatients,
-  getPatientAppointments,
+  getPatientHistory,
   PATIENTS_DEFAULT_PAGE_SIZE,
   PATIENTS_PAGE_SIZES,
   type AdminPatientAppointment,
+  type AdminPatientHistory,
   type AdminPatientRow,
   type AdminPatientsPage,
   type AdminPatientsQuery,
   type AppointmentStatus,
 } from "@/lib/admin-patients";
-import { STATUS_META, STATUS_ORDER, formatDate, formatDateTime } from "./data";
+import { STATUS_META, formatDate, formatDateTime } from "./data";
 import { EmptyState, ErrorBanner, SkeletonList } from "./StatePanels";
 
 const SEARCH_DEBOUNCE_MS = 300;
@@ -116,6 +117,28 @@ export function PatientsPage() {
     setErrorKey(null);
     setReloadKey((k) => k + 1);
   };
+
+  // Deep link: ?patient=<id> opens that patient once. The single-patient fetch
+  // is SERVER-gated (a DOCTOR only resolves their own patient — 403/404
+  // otherwise), so the param can't bypass access; on denial we just fall back
+  // to the list. The param is consumed (stripped) so a refresh isn't sticky.
+  const patientParam = searchParams.get("patient");
+  useEffect(() => {
+    if (!patientParam) return;
+    const ac = new AbortController();
+    getAdminPatient(patientParam, ac.signal)
+      .then((p) => setSelected(p))
+      .catch((err) => {
+        // 403/404 (not the doctor's patient) or other → don't open.
+        if (ac.signal.aborted || err?.name === "AbortError") return;
+      })
+      .finally(() => {
+        if (ac.signal.aborted) return;
+        router.replace(hrefFor({})); // drop ?patient, keep q/page/pageSize
+      });
+    return () => ac.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patientParam]);
 
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
@@ -335,61 +358,35 @@ function PatientDetail({
   patient: AdminPatientRow;
   onBack: () => void;
 }) {
-  const [appts, setAppts] = useState<AdminPatientAppointment[] | null>(null);
-  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  const [data, setData] = useState<AdminPatientHistory | null>(null);
+  // Past page lives in LOCAL panel state (not the URL), so it never disturbs
+  // the ?patient=<id> deep link. Upcoming is always all; only past paginates.
+  const [pastPage, setPastPage] = useState(1);
+  const [loadedPage, setLoadedPage] = useState<number | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
-  // Captured once on mount (client-only) → future/past split has a stable
-  // reference and no SSR hydration mismatch (the detail only renders on click).
-  const [now] = useState(() => Date.now());
-
-  const [statusFilter, setStatusFilter] = useState<AppointmentStatus | "all">("all");
-  const [timeFilter, setTimeFilter] = useState<"all" | "future" | "past">("all");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  // Derived error (errorKey vs requestKey) — avoids a synchronous setState in
+  // the effect body; a reload bumps reloadKey → key changes → error clears.
+  const [errorKey, setErrorKey] = useState<string | null>(null);
+  const requestKey = `${patient.id}|${pastPage}|${reloadKey}`;
 
   useEffect(() => {
     const ac = new AbortController();
-    getPatientAppointments(patient.id, ac.signal)
-      .then((rows) => {
-        setAppts(rows);
-        setState("ready");
+    getPatientHistory(patient.id, pastPage, ac.signal)
+      .then((d) => {
+        setData(d);
+        setLoadedPage(pastPage);
       })
       .catch((err) => {
         if (ac.signal.aborted || err?.name === "AbortError") return;
-        setState(
-          err instanceof ShopApiError && err.status === 404 ? "error" : "error",
-        );
+        setErrorKey(requestKey);
       });
     return () => ac.abort();
-  }, [patient.id, reloadKey]);
+  }, [patient.id, pastPage, reloadKey, requestKey]);
 
-  const fromTs = dateFrom ? Date.parse(`${dateFrom}T00:00:00.000Z`) : null;
-  const toTs = dateTo ? Date.parse(`${dateTo}T23:59:59.999Z`) : null;
-
-  const filtered = useMemo(() => {
-    return (appts ?? []).filter((a) => {
-      if (statusFilter !== "all" && a.status !== statusFilter) return false;
-      const ts = new Date(a.date).getTime();
-      if (timeFilter === "future" && ts < now) return false;
-      if (timeFilter === "past" && ts >= now) return false;
-      if (fromTs !== null && ts < fromTs) return false;
-      if (toTs !== null && ts > toTs) return false;
-      return true;
-    });
-  }, [appts, statusFilter, timeFilter, fromTs, toTs, now]);
-
-  const future = filtered.filter((a) => new Date(a.date).getTime() >= now);
-  const past = filtered.filter((a) => new Date(a.date).getTime() < now);
-  const showGroups = timeFilter === "all";
-
-  const hasActiveFilters =
-    statusFilter !== "all" || timeFilter !== "all" || !!dateFrom || !!dateTo;
-  const resetFilters = () => {
-    setStatusFilter("all");
-    setTimeFilter("all");
-    setDateFrom("");
-    setDateTo("");
-  };
+  const errored = errorKey === requestKey;
+  const reload = () => setReloadKey((k) => k + 1);
+  // A new past page is in flight (skeleton the past list, keep the rest).
+  const pageLoading = data !== null && loadedPage !== pastPage && !errored;
 
   return (
     <div>
@@ -415,114 +412,65 @@ function PatientDetail({
         </div>
       </div>
 
-      {state === "loading" ? (
-        <SkeletonList rows={4} />
-      ) : state === "error" ? (
-        <ErrorBanner onRetry={() => { setState("loading"); setReloadKey((k) => k + 1); }} />
+      {!data ? (
+        errored ? (
+          <ErrorBanner onRetry={reload} />
+        ) : (
+          <SkeletonList rows={4} />
+        )
       ) : (
-        <>
-          {/* Filters */}
-          <div className="mb-5 flex flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <Segmented
-                value={timeFilter}
-                onChange={setTimeFilter}
-                options={[
-                  { v: "all", label: "Усі" },
-                  { v: "future", label: "Майбутні" },
-                  { v: "past", label: "Минулі" },
-                ]}
-              />
-              <span className="hidden h-5 w-px bg-[color:var(--line-2)] sm:block" />
-              <label className="flex items-center gap-2 text-xs text-navy-400">
-                Від
-                <input
-                  type="date"
-                  value={dateFrom}
-                  max={dateTo || undefined}
-                  onChange={(e) => setDateFrom(e.target.value)}
-                  aria-label="Дата від"
-                  className="rounded-lg border border-[color:var(--line-2)] bg-white px-2.5 py-1.5 text-sm text-navy-900 outline-none focus:border-navy-900 focus:shadow-[0_0_0_3px_rgba(0,201,167,0.18)]"
-                />
-              </label>
-              <label className="flex items-center gap-2 text-xs text-navy-400">
-                До
-                <input
-                  type="date"
-                  value={dateTo}
-                  min={dateFrom || undefined}
-                  onChange={(e) => setDateTo(e.target.value)}
-                  aria-label="Дата до"
-                  className="rounded-lg border border-[color:var(--line-2)] bg-white px-2.5 py-1.5 text-sm text-navy-900 outline-none focus:border-navy-900 focus:shadow-[0_0_0_3px_rgba(0,201,167,0.18)]"
-                />
-              </label>
-              {hasActiveFilters && (
-                <button
-                  type="button"
-                  onClick={resetFilters}
-                  className="rounded-full border border-[color:var(--line-2)] bg-white px-3 py-1.5 text-xs font-medium text-navy-700 transition-colors hover:border-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint"
-                >
-                  Скинути
-                </button>
-              )}
-            </div>
+        <div className="flex flex-col gap-7">
+          {/* Майбутні — всі, без пагінатора */}
+          <section>
+            <SectionHeading title="Майбутні" count={data.upcoming.length} />
+            {data.upcoming.length === 0 ? (
+              <EmptyNote>Немає майбутніх записів.</EmptyNote>
+            ) : (
+              <TimelineList items={data.upcoming} />
+            )}
+          </section>
 
-            <div role="group" aria-label="Фільтр за статусом" className="flex flex-wrap gap-2">
-              <StatusChip active={statusFilter === "all"} onClick={() => setStatusFilter("all")} label="Усі статуси" />
-              {STATUS_ORDER.map((s) => (
-                <StatusChip
-                  key={s}
-                  active={statusFilter === s}
-                  onClick={() => setStatusFilter(s)}
-                  label={STATUS_META[s].label}
+          {/* Минулі — offset-пагінація */}
+          <section>
+            <SectionHeading title="Минулі" count={data.past.total} />
+            {errored ? (
+              <ErrorBanner onRetry={reload} />
+            ) : pageLoading ? (
+              <SkeletonList rows={3} />
+            ) : data.past.total === 0 ? (
+              <EmptyNote>Немає минулих записів.</EmptyNote>
+            ) : (
+              <>
+                <TimelineList items={data.past.items} />
+                <HistoryPagination
+                  page={data.past.page}
+                  totalPages={data.past.totalPages}
+                  total={data.past.total}
+                  pageSize={data.past.pageSize}
+                  onPage={setPastPage}
                 />
-              ))}
-            </div>
-          </div>
-
-          {/* Timeline */}
-          {filtered.length === 0 ? (
-            <EmptyState
-              icon="search"
-              title={
-                (appts ?? []).length === 0
-                  ? "Немає записів"
-                  : "Немає записів за фільтрами"
-              }
-              hint={
-                (appts ?? []).length === 0
-                  ? "У цього пацієнта поки немає історії записів."
-                  : "Жоден запис не відповідає обраним умовам. Змініть фільтри."
-              }
-            />
-          ) : showGroups ? (
-            <div className="flex flex-col gap-6">
-              {future.length > 0 && <TimelineGroup title="Майбутні" items={future} />}
-              {past.length > 0 && <TimelineGroup title="Минулі" items={past} />}
-            </div>
-          ) : (
-            <TimelineList items={filtered} />
-          )}
-        </>
+              </>
+            )}
+          </section>
+        </div>
       )}
     </div>
   );
 }
 
-function TimelineGroup({
-  title,
-  items,
-}: {
-  title: string;
-  items: AdminPatientAppointment[];
-}) {
+function SectionHeading({ title, count }: { title: string; count: number }) {
   return (
-    <section>
-      <h3 className="mb-2 text-xs font-medium uppercase tracking-[0.06em] text-navy-400">
-        {title} · {items.length}
-      </h3>
-      <TimelineList items={items} />
-    </section>
+    <h3 className="mb-2 text-xs font-medium uppercase tracking-[0.06em] text-navy-400">
+      {title} · {count}
+    </h3>
+  );
+}
+
+function EmptyNote({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="rounded-xl border border-dashed border-[color:var(--line-2)] bg-white px-4 py-8 text-center text-sm text-navy-400">
+      {children}
+    </p>
   );
 }
 
@@ -559,60 +507,73 @@ function TimelineList({ items }: { items: AdminPatientAppointment[] }) {
   );
 }
 
-// ─── Small shared controls ────────────────────────────────────────────────────
+// ─── History pagination (past appointments) ─────────────────────────────────
 
-function Segmented<T extends string>({
-  value,
-  onChange,
-  options,
+function HistoryPagination({
+  page,
+  totalPages,
+  total,
+  pageSize,
+  onPage,
 }: {
-  value: T;
-  onChange: (v: T) => void;
-  options: { v: T; label: string }[];
+  page: number;
+  totalPages: number;
+  total: number;
+  pageSize: number;
+  onPage: (p: number) => void;
 }) {
+  if (totalPages <= 1) return null;
+  const rangeStart = (page - 1) * pageSize + 1;
+  const rangeEnd = Math.min(page * pageSize, total);
+  const arrow =
+    "grid h-9 w-9 place-items-center rounded-full border border-[color:var(--line-2)] bg-white text-navy-700 transition-colors hover:border-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[color:var(--line-2)]";
   return (
-    <div className="inline-flex rounded-full border border-[color:var(--line-2)] bg-white p-1">
-      {options.map(({ v, label }) => (
-        <button
-          key={v}
-          type="button"
-          aria-pressed={value === v}
-          onClick={() => onChange(v)}
-          className={cn(
-            "rounded-full px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-mint",
-            value === v ? "bg-navy-900 text-white" : "text-navy-700 hover:text-navy-900",
-          )}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function StatusChip({
-  active,
-  onClick,
-  label,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={cn(
-        "rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-mint",
-        active
-          ? "border-navy-900 bg-navy-900 text-white"
-          : "border-[color:var(--line-2)] bg-white text-navy-700 hover:border-navy-900",
-      )}
+    <nav
+      aria-label="Пагінація минулих записів"
+      className="mt-4 flex flex-col items-center gap-3 sm:flex-row sm:justify-between"
     >
-      {label}
-    </button>
+      <p className="text-xs tabular-nums text-navy-400">
+        {rangeStart}–{rangeEnd} із {total}
+      </p>
+      <div className="flex items-center gap-1.5">
+        <button type="button" onClick={() => onPage(page - 1)} disabled={page <= 1} aria-label="Попередня сторінка" className={arrow}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+        </button>
+        <div className="hidden items-center gap-1.5 sm:flex">
+          {buildPageList(page, totalPages).map((p, i) =>
+            p === "…" ? (
+              <span key={`e${i}`} aria-hidden="true" className="px-1 text-sm text-navy-400">…</span>
+            ) : (
+              <button
+                key={p}
+                type="button"
+                onClick={() => onPage(p)}
+                aria-label={`Сторінка ${p}`}
+                aria-current={p === page ? "page" : undefined}
+                className={cn(
+                  "h-9 min-w-9 rounded-full px-2 text-sm font-medium tabular-nums transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-mint",
+                  p === page
+                    ? "bg-navy-900 text-white"
+                    : "border border-[color:var(--line-2)] bg-white text-navy-700 hover:border-navy-900",
+                )}
+              >
+                {p}
+              </button>
+            ),
+          )}
+        </div>
+        <span className="px-1 text-sm tabular-nums text-navy-700 sm:hidden">
+          стор. {page} із {totalPages}
+        </span>
+        <button type="button" onClick={() => onPage(page + 1)} disabled={page >= totalPages} aria-label="Наступна сторінка" className={arrow}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m9 18 6-6-6-6" />
+          </svg>
+        </button>
+      </div>
+    </nav>
   );
 }
 

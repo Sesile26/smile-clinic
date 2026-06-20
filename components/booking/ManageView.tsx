@@ -43,6 +43,7 @@ import { MonthCalendar } from "./MonthCalendar";
 import { Select } from "./Select";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ManualBookingModal } from "./ManualBookingModal";
+import { AppointmentDetailModal } from "./AppointmentDetailModal";
 import {
   EmptyState,
   ErrorBanner,
@@ -95,6 +96,8 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
 
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
+  // Booked slot whose appointment details are open in the popup.
+  const [detailSlotId, setDetailSlotId] = useState<string | null>(null);
 
   const { doctors, state: doctorsState } = useDoctors(online);
 
@@ -158,9 +161,15 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
     time: string,
     status: SlotStatus,
   ) => {
-    if (!online || busy || !activeDoctorId || status === "booked") return;
+    if (!online || busy || !activeDoctorId) return;
     const date = addDays(weekAnchor, dayIndex);
-    if (isCellPast(date, time, today)) return; // no editing past cells
+    if (isCellPast(date, time, today)) return; // no editing/opening past cells
+    // Booked → open the appointment-details popup (no slot edit).
+    if (status === "booked") {
+      const slot = maps.slotByCell.get(cellKeyOf(date, time));
+      if (slot) setDetailSlotId(slot.id);
+      return;
+    }
     setActionError(null);
     setBusy(true);
     try {
@@ -368,14 +377,15 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
           onSelectDay={setSelectedDay}
           onActivate={toggleSlot}
           onFillDay={onFillDay}
+          bookedActionable={online}
         />
       )}
 
       {online && view === "week" && activeDoctorId && slotsState === "ready" && (
         <p className="mt-3 text-xs text-navy-400">
           Натисніть порожню годину, щоб відкрити слот, або «працюю», щоб прибрати.
-          «Заповнити день» відкриває всі вільні години одразу. Заброньовані слоти
-          заблоковані.
+          «Заповнити день» відкриває всі вільні години одразу. Натисніть зайнятий
+          слот, щоб переглянути деталі запису.
         </p>
       )}
 
@@ -398,6 +408,16 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
           today={today}
           onBooked={reload}
           onClose={() => setManualOpen(false)}
+        />
+      )}
+
+      {detailSlotId && (
+        <AppointmentDetailModal
+          slotId={detailSlotId}
+          online={online}
+          canViewPatient
+          onClose={() => setDetailSlotId(null)}
+          onChanged={reload}
         />
       )}
     </div>

@@ -46,6 +46,21 @@ export interface AdminPatientAppointment {
   doctorSpecialty: string | null;
 }
 
+export const PATIENT_HISTORY_PAGE_SIZE = 10;
+
+/** One patient's history: ALL upcoming (usually few) + one offset page of past
+ *  (newest first). Mirrors /my/appointments. */
+export interface AdminPatientHistory {
+  upcoming: AdminPatientAppointment[];
+  past: {
+    items: AdminPatientAppointment[];
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
 async function toError(res: Response): Promise<ShopApiError> {
   let body: Partial<ApiError> | null = null;
   try {
@@ -83,14 +98,31 @@ export async function getAdminPatients(
   return (await res.json()) as AdminPatientsPage;
 }
 
-export async function getPatientAppointments(
-  patientId: string,
+/** One patient's card (for deep-linking via ?patient=<id>). Throws a
+ *  ShopApiError on 403/404 — the caller hides/ignores it (a DOCTOR only ever
+ *  resolves their own patients; the server enforces it). */
+export async function getAdminPatient(
+  id: string,
   signal?: AbortSignal,
-): Promise<AdminPatientAppointment[]> {
+): Promise<AdminPatientRow> {
+  const res = await fetch(`/api/admin/patients/${id}`, {
+    cache: "no-store",
+    signal,
+  });
+  if (!res.ok) throw await toError(res);
+  return (await res.json()) as AdminPatientRow;
+}
+
+export async function getPatientHistory(
+  patientId: string,
+  page = 1,
+  signal?: AbortSignal,
+): Promise<AdminPatientHistory> {
+  const qs = page > 1 ? `?page=${page}` : "";
   const res = await fetch(
-    `/api/admin/patients/${patientId}/appointments`,
+    `/api/admin/patients/${patientId}/appointments${qs}`,
     { cache: "no-store", signal },
   );
   if (!res.ok) throw await toError(res);
-  return (await res.json()) as AdminPatientAppointment[];
+  return (await res.json()) as AdminPatientHistory;
 }

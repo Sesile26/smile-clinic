@@ -48,6 +48,9 @@ interface WeekCalendarProps {
   onRetry?: () => void;
   /** Cell to flash + scroll into view (e.g. the "next free time" target). */
   highlight?: SlotHighlight | null;
+  /** Manage: make BOOKED (non-past) cells clickable to open appointment
+   *  details (instead of being inert). off/working toggling is unchanged. */
+  bookedActionable?: boolean;
 }
 
 const SKELETON_ROWS = 8;
@@ -58,9 +61,10 @@ function isFocusable(
   mode: Mode,
   disabled?: boolean,
   past?: boolean,
+  bookedActionable?: boolean,
 ): boolean {
   if (disabled || past) return false; // past cells are never actionable
-  if (mode === "manage") return status !== "booked"; // off/working clickable
+  if (mode === "manage") return status !== "booked" || !!bookedActionable;
   return status === "working"; // book mode → only free slots
 }
 
@@ -84,6 +88,7 @@ export function WeekCalendar({
   emptyHint,
   onRetry,
   highlight = null,
+  bookedActionable = false,
 }: WeekCalendarProps) {
   // Scroll the flashed cell into view when a highlight target appears (the
   // visible one — desktop grid or mobile list, whichever is on screen).
@@ -118,13 +123,16 @@ export function WeekCalendar({
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const cell = week[c]?.slots[r];
-        if (cell && isFocusable(cell.status, mode, disabled, cell.past)) {
+        if (
+          cell &&
+          isFocusable(cell.status, mode, disabled, cell.past, bookedActionable)
+        ) {
           return `${r}-${c}`;
         }
       }
     }
     return null;
-  }, [week, rows, mode, disabled]);
+  }, [week, rows, mode, disabled, bookedActionable]);
 
   const stepFocus = useCallback(
     (row: number, col: number, dr: number, dc: number): boolean => {
@@ -265,7 +273,12 @@ export function WeekCalendar({
                     mode,
                     disabled,
                     slot.past,
+                    bookedActionable,
                   );
+                  // A booked cell is clickable (to open details) only when the
+                  // manage popup is enabled and it isn't past.
+                  const bookedClickable =
+                    slot.status === "booked" && bookedActionable && !slot.past;
                   // Manage: show every cell (past ones greyed). Book: only a
                   // FREE, non-past slot is shown — past free slots are hidden.
                   const show =
@@ -289,7 +302,8 @@ export function WeekCalendar({
                           time={time}
                           variant={variantFor(slot.status, mode)}
                           past={slot.past}
-                          disabled={disabled || slot.status === "booked"}
+                          disabled={disabled}
+                          actionable={bookedClickable}
                           tabIndex={
                             focusable && key === activeOrFirst ? 0 : -1
                           }
@@ -298,11 +312,12 @@ export function WeekCalendar({
                           onFocusCapture={
                             focusable ? () => setActiveKey(key) : undefined
                           }
-                          className={
-                            isHl
-                              ? "ring-2 ring-mint-600 ring-offset-1 animate-pulse"
-                              : undefined
-                          }
+                          className={cn(
+                            bookedClickable &&
+                              "cursor-pointer hover:border-navy-900/40 hover:bg-navy-900/[0.1]",
+                            isHl &&
+                              "ring-2 ring-mint-600 ring-offset-1 animate-pulse",
+                          )}
                         />
                       ) : (
                         <span
@@ -386,6 +401,7 @@ export function WeekCalendar({
               mode={mode}
               disabled={disabled}
               highlight={highlight}
+              bookedActionable={bookedActionable}
               onActivate={(time, status) => onActivate(selectedDay, time, status)}
             />
           )}
@@ -400,12 +416,14 @@ function MobileDayList({
   mode,
   disabled,
   highlight,
+  bookedActionable,
   onActivate,
 }: {
   day: DaySlots | undefined;
   mode: Mode;
   disabled?: boolean;
   highlight?: SlotHighlight | null;
+  bookedActionable?: boolean;
   onActivate: (time: string, status: SlotStatus) => void;
 }) {
   if (!day) return null;
@@ -430,6 +448,8 @@ function MobileDayList({
     <div className="grid grid-cols-3 gap-2 sm:grid-cols-4" role="group">
       {visible.map((slot) => {
         const isHl = hlTime === slot.time;
+        const bookedClickable =
+          slot.status === "booked" && bookedActionable && !slot.past;
         return (
           <div
             key={slot.time}
@@ -444,8 +464,14 @@ function MobileDayList({
               time={slot.time}
               variant={variantFor(slot.status, mode)}
               past={slot.past}
-              disabled={disabled || slot.status === "booked"}
+              disabled={disabled}
+              actionable={bookedClickable}
               onClick={() => onActivate(slot.time, slot.status)}
+              className={
+                bookedClickable
+                  ? "cursor-pointer hover:border-navy-900/40 hover:bg-navy-900/[0.1]"
+                  : undefined
+              }
             />
           </div>
         );

@@ -24,6 +24,21 @@ export interface NextFreeSlot {
   startsAt: string;
 }
 
+/** Details of the appointment occupying a booked slot — for the manage popup.
+ *  Contact data is only ever returned to a caller allowed to manage the slot's
+ *  doctor (server-enforced). */
+export interface BookedSlotDetail {
+  appointmentId: string;
+  status: "pending" | "confirmed" | "done" | "cancelled";
+  /** UTC ISO (the slot start). */
+  date: string;
+  doctorId: string;
+  doctorName: string;
+  patientId: string;
+  patientName: string;
+  patientPhone: string | null;
+}
+
 export interface ApiDoctor {
   id: string;
   name: string;

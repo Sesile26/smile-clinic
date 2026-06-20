@@ -17,6 +17,9 @@ interface SlotButtonProps {
   disabled?: boolean;
   /** Slot start is in the past — muted, never actionable. */
   past?: boolean;
+  /** Booked slots are disabled by default; set this to keep a booked slot
+   *  clickable (e.g. the manage popup that opens appointment details). */
+  actionable?: boolean;
   /** Roving-tabindex: only the active cell is in the tab order. */
   tabIndex?: number;
   /** Overrides the computed title/tooltip. */
@@ -33,8 +36,9 @@ const VARIANT_CLASS: Record<SlotVariant, string> = {
   // doctor view — working: mint fill, the "я працюю" state
   working:
     "border-mint bg-mint-100 text-navy-900 hover:bg-mint/30 aria-pressed:border-mint",
-  // both views — booked: locked navy chip, never actionable
-  booked: "border-navy-900/15 bg-navy-900/[0.06] text-navy-400 cursor-not-allowed",
+  // both views — booked: locked navy chip. cursor-not-allowed is applied via
+  // the `disabled:` modifier below, so a manage popup can make it clickable.
+  booked: "border-navy-900/15 bg-navy-900/[0.06] text-navy-400",
   // patient view — a free slot to grab
   free: "border-mint/60 bg-white text-navy-900 hover:border-mint hover:bg-mint-100",
   // patient view — the slot currently chosen in the confirm flow
@@ -52,6 +56,7 @@ export const SlotButton = forwardRef<HTMLButtonElement, SlotButtonProps>(
       variant,
       disabled,
       past,
+      actionable,
       tabIndex,
       title,
       onClick,
@@ -78,7 +83,7 @@ export const SlotButton = forwardRef<HTMLButtonElement, SlotButtonProps>(
       <button
         ref={ref}
         type="button"
-        disabled={disabled || isBooked || isPast}
+        disabled={disabled || isPast || (isBooked && !actionable)}
         tabIndex={tabIndex}
         onClick={onClick}
         onKeyDown={onKeyDown}
