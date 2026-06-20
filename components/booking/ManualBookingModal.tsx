@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
+import { lockBodyScroll, unlockBodyScroll } from "@/lib/scroll-lock";
 import { btnBase, btnGhost, btnMint } from "@/lib/buttons";
 import { IcoClose } from "@/components/icons";
 import { Select } from "./Select";
@@ -120,13 +121,13 @@ export function ManualBookingModal({
   // ── Focus trap + scroll lock ──────────────────────────────────────────────
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
-    document.body.style.overflow = "hidden";
+    lockBodyScroll();
     const t = window.setTimeout(() => {
       dialogRef.current?.querySelector<HTMLElement>("[data-autofocus]")?.focus();
     }, 50);
     return () => {
       window.clearTimeout(t);
-      document.body.style.overflow = "";
+      unlockBodyScroll();
       prev?.focus?.();
     };
   }, [step]);
@@ -326,7 +327,7 @@ export function ManualBookingModal({
         </div>
 
         {/* Body */}
-        <div className="flex flex-col gap-4 overflow-y-auto px-6 py-5">
+        <div className="flex flex-col gap-4 overflow-y-auto scrollbar-none px-6 py-5">
           {step === 1 && (
             <PatientStep
               mode={mode}

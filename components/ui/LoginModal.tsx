@@ -11,6 +11,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { signIn } from "next-auth/react";
 import { cn } from "@/lib/cn";
+import { lockBodyScroll, unlockBodyScroll } from "@/lib/scroll-lock";
 import { loginSchema, type LoginValues } from "@/schemas/login";
 import { registerSchema, type RegisterValues } from "@/schemas/register";
 import {
@@ -127,7 +128,7 @@ export function LoginModal({
     if (!open) return;
 
     const previouslyFocused = document.activeElement as HTMLElement | null;
-    document.body.style.overflow = "hidden";
+    lockBodyScroll();
     setStatus("idle");
     setShowPw(false);
     setFormError(null);
@@ -140,7 +141,7 @@ export function LoginModal({
 
     return () => {
       window.clearTimeout(focusTimer);
-      document.body.style.overflow = "";
+      unlockBodyScroll();
       previouslyFocused?.focus?.();
     };
   }, [open]);
@@ -310,7 +311,7 @@ export function LoginModal({
       role="presentation"
       onKeyDown={onKeyDown}
       className={cn(
-        "fixed inset-0 z-[100] overflow-y-auto backdrop-blur-[10px] transition-[opacity,visibility] duration-300 ease-smooth",
+        "fixed inset-0 z-[100] overflow-y-auto scrollbar-none backdrop-blur-[10px] transition-[opacity,visibility] duration-300 ease-smooth",
         "bg-[rgba(10,22,40,0.55)]",
         open ? "visible opacity-100" : "invisible opacity-0",
       )}

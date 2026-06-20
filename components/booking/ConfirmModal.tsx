@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { cn } from "@/lib/cn";
+import { lockBodyScroll, unlockBodyScroll } from "@/lib/scroll-lock";
 import { btnBase, btnGhost, btnMint } from "@/lib/buttons";
 import { IcoClose } from "@/components/icons";
 import { formatDayLong, type Doctor } from "./data";
@@ -46,7 +47,7 @@ export function ConfirmModal({
   useEffect(() => {
     if (!open) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
-    document.body.style.overflow = "hidden";
+    lockBodyScroll();
 
     const t = window.setTimeout(() => {
       dialogRef.current
@@ -56,7 +57,7 @@ export function ConfirmModal({
 
     return () => {
       window.clearTimeout(t);
-      document.body.style.overflow = "";
+      unlockBodyScroll();
       previouslyFocused?.focus?.();
     };
   }, [open, success]);

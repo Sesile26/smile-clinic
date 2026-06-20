@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSession } from "next-auth/react";
 import { cn } from "@/lib/cn";
+import { lockBodyScroll, unlockBodyScroll } from "@/lib/scroll-lock";
 import { btnBase, btnMint } from "@/lib/buttons";
 import { IcoChevron, IcoClose } from "@/components/icons";
 import { useLoginModal } from "@/components/ui/LoginModalProvider";
@@ -154,13 +155,13 @@ export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
   useEffect(() => {
     if (!open) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
-    document.body.style.overflow = "hidden";
+    lockBodyScroll();
     const t = window.setTimeout(() => {
       panelRef.current?.querySelector<HTMLElement>("[data-autofocus]")?.focus();
     }, 80);
     return () => {
       window.clearTimeout(t);
-      document.body.style.overflow = "";
+      unlockBodyScroll();
       previouslyFocused?.focus?.();
     };
   }, [open, step]);
@@ -329,7 +330,7 @@ export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-5">
+        <div className="flex-1 overflow-y-auto scrollbar-none px-5 py-5">
           {!online && step !== "done" && <OfflineNotice className="mb-4" />}
 
           {step === "cart" && notice && (

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { cn } from "@/lib/cn";
+import { lockBodyScroll, unlockBodyScroll } from "@/lib/scroll-lock";
 import { btnBase, btnGhost, btnMint } from "@/lib/buttons";
 
 const FOCUSABLE =
@@ -30,13 +31,13 @@ export function ConfirmDialog({
 
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
-    document.body.style.overflow = "hidden";
+    lockBodyScroll();
     const t = window.setTimeout(() => {
       ref.current?.querySelector<HTMLElement>("[data-autofocus]")?.focus();
     }, 50);
     return () => {
       window.clearTimeout(t);
-      document.body.style.overflow = "";
+      unlockBodyScroll();
       prev?.focus?.();
     };
   }, []);

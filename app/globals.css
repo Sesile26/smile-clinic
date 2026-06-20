@@ -26,6 +26,16 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Hide the scrollbar visually while keeping the element scrollable (used by
+   modal scroll containers — the bar is decorative noise there). */
+.scrollbar-none {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* old Edge / IE */
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none; /* Chrome / Safari */
+}
+
 /* ───────────────── Scroll reveal (child selectors → must be global) ───────────────── */
 .reveal {
   opacity: 0;

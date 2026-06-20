@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { cn } from "@/lib/cn";
+import { lockBodyScroll, unlockBodyScroll } from "@/lib/scroll-lock";
 import { btnBase, btnGhost } from "@/lib/buttons";
 import { IcoClose } from "@/components/icons";
 import {
@@ -38,7 +39,7 @@ export function CancelModal({
 
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
-    document.body.style.overflow = "hidden";
+    lockBodyScroll();
     const t = window.setTimeout(() => {
       dialogRef.current
         ?.querySelector<HTMLButtonElement>("[data-autofocus]")
@@ -46,7 +47,7 @@ export function CancelModal({
     }, 60);
     return () => {
       window.clearTimeout(t);
-      document.body.style.overflow = "";
+      unlockBodyScroll();
       previouslyFocused?.focus?.();
     };
   }, []);

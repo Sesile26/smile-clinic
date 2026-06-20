@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
+import { lockBodyScroll, unlockBodyScroll } from "@/lib/scroll-lock";
 import { btnBase, btnGhost, btnMint } from "@/lib/buttons";
 import { IcoClose } from "@/components/icons";
 import type { ApiProduct } from "@/lib/shop-types";
@@ -78,7 +79,7 @@ export function ProductFormModal({
   // Scroll lock + autofocus + focus restore (runs once for this mount).
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
-    document.body.style.overflow = "hidden";
+    lockBodyScroll();
     const t = window.setTimeout(() => {
       dialogRef.current
         ?.querySelector<HTMLInputElement>("[data-autofocus]")
@@ -86,7 +87,7 @@ export function ProductFormModal({
     }, 60);
     return () => {
       window.clearTimeout(t);
-      document.body.style.overflow = "";
+      unlockBodyScroll();
       previouslyFocused?.focus?.();
     };
   }, []);
@@ -174,7 +175,7 @@ export function ProductFormModal({
         <form
           onSubmit={handleSubmit}
           noValidate
-          className="flex flex-col gap-4 overflow-y-auto px-6 py-5"
+          className="flex flex-col gap-4 overflow-y-auto scrollbar-none px-6 py-5"
         >
           <div className="flex flex-col gap-1.5">
             <label htmlFor="pf-name" className={fieldLabel}>

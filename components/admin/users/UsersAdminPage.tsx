@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { cn } from "@/lib/cn";
+import { lockBodyScroll, unlockBodyScroll } from "@/lib/scroll-lock";
 import { btnBase, btnGhost, btnMint } from "@/lib/buttons";
 import { IcoClose } from "@/components/icons";
 import { SkeletonList, EmptyState, ErrorBanner } from "@/components/admin/patients/StatePanels";
@@ -497,13 +498,13 @@ function RoleChangeModal({
 
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
-    document.body.style.overflow = "hidden";
+    lockBodyScroll();
     const t = window.setTimeout(() => {
       dialogRef.current?.querySelector<HTMLElement>("[data-autofocus]")?.focus();
     }, 60);
     return () => {
       window.clearTimeout(t);
-      document.body.style.overflow = "";
+      unlockBodyScroll();
       prev?.focus?.();
     };
   }, []);
@@ -588,7 +589,7 @@ function RoleChangeModal({
           </button>
         </div>
 
-        <div className="flex flex-col gap-4 overflow-y-auto px-6 py-5">
+        <div className="flex flex-col gap-4 overflow-y-auto scrollbar-none px-6 py-5">
           <p className="text-sm text-navy-700">
             Змінити роль <span className="font-medium text-navy-900">{user.email ?? user.name}</span> з{" "}
             <span className="font-medium">{ROLE_META[user.role].label}</span> на{" "}
