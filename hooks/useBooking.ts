@@ -128,6 +128,10 @@ function localToApiSlot(s: LocalSlot): ApiSlot {
 export interface UseSlotsResult {
   slots: ApiSlot[];
   state: LoadState;
+  /** A request for the CURRENT range is in flight (covers first load AND a
+   *  refetch on week/doctor change — `state` stays "ready" during a refetch so
+   *  consumers can show a slot skeleton without losing the calendar shell). */
+  fetching: boolean;
   /** Forces an online refetch (after create/delete/booking). No-op offline. */
   reload: () => void;
   /** Where the data came from — drives the read-only / offline UX. */
@@ -157,27 +161,48 @@ export function useSlots(params: {
     undefined,
   );
 
-  const [server, setServer] = useState<{ slots: ApiSlot[]; state: LoadState }>({
-    slots: [],
-    state: "loading",
-  });
+  const active = online && enabled && !!doctorId;
+  // Key of the data we WANT; the fetch tags its result with the same key so we
+  // can tell whether the held slots match the current range (→ `fetching`).
+  const requestKey = active
+    ? `${doctorId}|${fromISO}|${toISO}|${reloadKey}`
+    : null;
+
+  const [data, setData] = useState<{ key: string; slots: ApiSlot[] } | null>(
+    null,
+  );
+  const [errorKey, setErrorKey] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!online || !enabled || !doctorId) return;
-    // No synchronous setState (see useDoctors) — prior slots stay visible until
-    // the new fetch resolves, which also avoids a loading flicker on refetch.
+    if (!active || !requestKey) return;
+    // No synchronous setState (see useDoctors); the previous request is aborted
+    // on any change, so only the LATEST week/doctor ever lands in `data`.
     const ac = new AbortController();
     getSlots(doctorId, fromISO, toISO, ac.signal)
-      .then((slots) => setServer({ slots, state: "ready" }))
+      .then((slots) => setData({ key: requestKey, slots }))
       .catch((err) => {
         if (ac.signal.aborted || err?.name === "AbortError") return;
-        setServer({ slots: [], state: "error" });
+        setErrorKey(requestKey);
       });
     return () => ac.abort();
-  }, [online, enabled, doctorId, fromISO, toISO, reloadKey]);
+  }, [active, requestKey, doctorId, fromISO, toISO]);
 
   if (online) {
-    return { ...server, reload, source: "server" };
+    const loaded = !!requestKey && data?.key === requestKey;
+    const isError = !!requestKey && errorKey === requestKey;
+    const fetching = active && !loaded && !isError;
+    const state: LoadState = isError
+      ? "error"
+      : !data && fetching
+        ? "loading"
+        : "ready";
+    return {
+      slots: data?.slots ?? [],
+      state,
+      fetching,
+      reload,
+      source: "server",
+    };
   }
 
   const slots = (mirror ?? [])
@@ -186,6 +211,7 @@ export function useSlots(params: {
   return {
     slots,
     state: mirror === undefined ? "loading" : "ready",
+    fetching: false,
     reload,
     source: "mirror",
   };

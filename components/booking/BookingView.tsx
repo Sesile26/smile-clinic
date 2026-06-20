@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useAppointments } from "@/hooks/useAppointments";
 import { useDoctors, useSlots } from "@/hooks/useBooking";
+import { useDelayedFlag } from "@/hooks/useDelayedFlag";
 import { createBooking, BookingApiError } from "@/lib/booking-client";
 import type { ApiSlot } from "@/lib/booking-types";
 import {
@@ -28,7 +29,6 @@ import { MonthCalendar } from "./MonthCalendar";
 import { Select } from "./Select";
 import { ConfirmModal } from "./ConfirmModal";
 import {
-  EmptyState,
   ErrorBanner,
   OfflineNotice,
   SkeletonCalendar,
@@ -115,6 +115,7 @@ export function BookingView({ today, online }: BookingViewProps) {
   const {
     slots,
     state: slotsState,
+    fetching: slotsFetching,
     reload,
   } = useSlots({
     doctorId: activeDoctorId || null,
@@ -123,6 +124,14 @@ export function BookingView({ today, online }: BookingViewProps) {
     online,
     enabled: !!activeDoctorId,
   });
+
+  const loadingDoctors = doctorsState === "loading" && doctors.length === 0;
+  // A (re)fetch is in flight for the chosen doctor/week — covers first load and
+  // week/doctor switches. The slot skeleton is gated by an anti-flicker delay so
+  // a fast response never flashes it; the calendar shell shows immediately.
+  // (Declared before the offline early-return to keep hook order stable.)
+  const pending = loadingDoctors || slotsFetching;
+  const showSkeletonCells = useDelayedFlag(pending, 200);
 
   const maps = useMemo(() => indexSlots(slots), [slots]);
   const times = useMemo(() => patientTimes(slots), [slots]);
@@ -197,9 +206,6 @@ export function BookingView({ today, online }: BookingViewProps) {
   const title =
     view === "week" ? formatWeekRange(weekAnchor) : formatMonth(monthAnchor);
 
-  const loadingDoctors = doctorsState === "loading" && doctors.length === 0;
-  const showSkeleton = loadingDoctors || slotsState === "loading";
-
   return (
     <div>
       {/* Specialty + doctor pickers */}
@@ -234,36 +240,52 @@ export function BookingView({ today, online }: BookingViewProps) {
         onToday={goToday}
       />
 
-      {doctorsState === "error" ? (
-        <ErrorBanner onRetry={() => window.location.reload()} />
-      ) : showSkeleton ? (
-        <SkeletonCalendar />
-      ) : slotsState === "error" ? (
-        <ErrorBanner onRetry={reload} />
-      ) : view === "month" ? (
-        <MonthCalendar
-          monthAnchor={monthAnchor}
-          freeCountByDay={monthCounts}
-          today={today}
-          onPickDay={pickDay}
-        />
-      ) : !hasFreeThisWeek ? (
-        <EmptyState
-          title="Немає вільних слотів"
-          hint={`У ${doctor?.name ?? "обраного лікаря"} немає вільних слотів на цей тиждень. Спробуйте інший період або іншого лікаря.`}
-        />
-      ) : (
-        <WeekCalendar
-          week={week}
-          mode="book"
-          today={today}
-          selectedDay={selectedDay}
-          onSelectDay={setSelectedDay}
-          onActivate={(dayIndex, time) => openConfirm(dayIndex, time)}
-        />
-      )}
+      <div aria-busy={pending || undefined}>
+        {doctorsState === "error" ? (
+          // Roster failed → there's no calendar to show at all.
+          <ErrorBanner onRetry={() => window.location.reload()} />
+        ) : view === "month" ? (
+          slotsState === "error" ? (
+            <ErrorBanner onRetry={reload} />
+          ) : pending ? (
+            <SkeletonCalendar />
+          ) : (
+            <MonthCalendar
+              monthAnchor={monthAnchor}
+              freeCountByDay={monthCounts}
+              today={today}
+              onPickDay={pickDay}
+            />
+          )
+        ) : (
+          // Week view: the frame (day headers/dates + the grid shell) ALWAYS
+          // renders — only the inner slot zone swaps between loading / slots /
+          // empty / error, so switching weeks never drops the dates or jumps.
+          <WeekCalendar
+            week={week}
+            mode="book"
+            today={today}
+            selectedDay={selectedDay}
+            onSelectDay={setSelectedDay}
+            onActivate={(dayIndex, time) => openConfirm(dayIndex, time)}
+            bodyState={
+              slotsState === "error"
+                ? "error"
+                : pending
+                  ? "loading"
+                  : hasFreeThisWeek
+                    ? "ready"
+                    : "empty"
+            }
+            cellsVisible={showSkeletonCells}
+            emptyTitle="Немає вільних місць на цей тиждень"
+            emptyHint={`У ${doctor?.name ?? "обраного лікаря"} немає вільних слотів цього тижня. Спробуйте інший період або іншого лікаря.`}
+            onRetry={reload}
+          />
+        )}
+      </div>
 
-      {slotsState === "ready" && view === "week" && hasFreeThisWeek && (
+      {!pending && slotsState === "ready" && view === "week" && hasFreeThisWeek && (
         <p className="mt-3 text-xs text-navy-400">
           Оберіть вільний слот, щоб перейти до підтвердження запису.
         </p>

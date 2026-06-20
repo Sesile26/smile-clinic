@@ -12,6 +12,11 @@ import { SlotButton, type SlotVariant } from "./SlotButton";
 
 type Mode = "manage" | "book";
 
+/** What the SLOT ZONE shows. The day-header row / mobile tabs (the dates) and
+ *  the surrounding frame always render — only this inner zone swaps, so the
+ *  header never disappears between loading / empty / slots. */
+export type WeekBodyState = "ready" | "loading" | "empty" | "error";
+
 interface WeekCalendarProps {
   week: DaySlots[];
   mode: Mode;
@@ -24,7 +29,19 @@ interface WeekCalendarProps {
   onActivate: (dayIndex: number, time: string, status: SlotStatus) => void;
   /** Manage-only: fill all empty working hours of a day (per-day button). */
   onFillDay?: (dayIndex: number) => void;
+  /** Inner slot-zone state (default "ready" → current slots). The header/frame
+   *  stay put for every value, so switching weeks never drops the dates. */
+  bodyState?: WeekBodyState;
+  /** Fade the loading shimmer in (anti-flicker delay) — only for "loading". */
+  cellsVisible?: boolean;
+  /** Copy for the "empty" zone. */
+  emptyTitle?: string;
+  emptyHint?: string;
+  /** Retry for the "error" zone. */
+  onRetry?: () => void;
 }
+
+const SKELETON_ROWS = 8;
 
 /** Which cells render an interactive button in each mode. */
 function isFocusable(
@@ -52,6 +69,11 @@ export function WeekCalendar({
   onSelectDay,
   onActivate,
   onFillDay,
+  bodyState = "ready",
+  cellsVisible = false,
+  emptyTitle = "Немає вільних місць",
+  emptyHint,
+  onRetry,
 }: WeekCalendarProps) {
   const times = week[0]?.slots.map((s) => s.time) ?? [];
   const rows = times.length;
@@ -190,10 +212,19 @@ export function WeekCalendar({
             })}
           </div>
 
-          {/* Time rows — no inner scroll: the full day fits; the page scrolls
-              if the viewport is short. */}
-          <div>
-            {times.map((time, r) => (
+          {/* Slot zone — swaps content; the header above stays put. Stable
+              min-height so loading → empty/slots doesn't jump vertically. */}
+          <div className="min-h-[336px]">
+            {bodyState !== "ready" ? (
+              <DesktopZoneState
+                state={bodyState}
+                cellsVisible={cellsVisible}
+                emptyTitle={emptyTitle}
+                emptyHint={emptyHint}
+                onRetry={onRetry}
+              />
+            ) : (
+            times.map((time, r) => (
               <div
                 role="row"
                 key={time}
@@ -255,7 +286,8 @@ export function WeekCalendar({
                   );
                 })}
               </div>
-            ))}
+            ))
+            )}
           </div>
         </div>
       </div>
@@ -309,12 +341,24 @@ export function WeekCalendar({
           </button>
         )}
 
-        <MobileDayList
-          day={week[selectedDay]}
-          mode={mode}
-          disabled={disabled}
-          onActivate={(time, status) => onActivate(selectedDay, time, status)}
-        />
+        <div className="min-h-[180px]">
+          {bodyState !== "ready" ? (
+            <MobileZoneState
+              state={bodyState}
+              cellsVisible={cellsVisible}
+              emptyTitle={emptyTitle}
+              emptyHint={emptyHint}
+              onRetry={onRetry}
+            />
+          ) : (
+            <MobileDayList
+              day={week[selectedDay]}
+              mode={mode}
+              disabled={disabled}
+              onActivate={(time, status) => onActivate(selectedDay, time, status)}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
@@ -359,5 +403,141 @@ function MobileDayList({
         />
       ))}
     </div>
+  );
+}
+
+// ─── Slot-zone states (shimmer / empty / error) ──────────────────────────────
+// Rendered INSIDE the frame, below the day-header row, so the dates stay put.
+
+function ZoneMessage({
+  title,
+  hint,
+  onRetry,
+  tone = "muted",
+}: {
+  title: string;
+  hint?: string;
+  onRetry?: () => void;
+  tone?: "muted" | "error";
+}) {
+  return (
+    <div
+      role={tone === "error" ? "alert" : undefined}
+      className="flex h-full min-h-[inherit] flex-col items-center justify-center px-6 py-12 text-center"
+    >
+      <p
+        className={cn(
+          "text-base font-medium",
+          tone === "error" ? "text-red-800" : "text-navy-900",
+        )}
+      >
+        {title}
+      </p>
+      {hint && <p className="mt-1 max-w-[40ch] text-sm text-navy-400">{hint}</p>}
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-4 rounded-full bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-1"
+        >
+          Спробувати знову
+        </button>
+      )}
+    </div>
+  );
+}
+
+const shimmerCell = (cellsVisible: boolean) =>
+  cn(
+    "h-[34px] rounded-lg bg-bone/60 transition-opacity duration-200",
+    cellsVisible ? "animate-pulse opacity-100" : "opacity-0",
+  );
+
+function DesktopZoneState({
+  state,
+  cellsVisible,
+  emptyTitle,
+  emptyHint,
+  onRetry,
+}: {
+  state: Exclude<WeekBodyState, "ready">;
+  cellsVisible: boolean;
+  emptyTitle: string;
+  emptyHint?: string;
+  onRetry?: () => void;
+}) {
+  if (state === "loading") {
+    return (
+      <div role="status" aria-busy="true" aria-live="polite">
+        <span className="sr-only">Завантаження слотів…</span>
+        {Array.from({ length: SKELETON_ROWS }).map((_, r) => (
+          <div
+            key={r}
+            className="grid border-b border-[color:var(--line)] last:border-b-0"
+            style={{ gridTemplateColumns: "64px repeat(7, 1fr)" }}
+          >
+            <span className="flex items-center justify-center px-1 py-1.5">
+              <span
+                className={cn(
+                  "h-3 w-9 rounded bg-bone/50 transition-opacity duration-200",
+                  cellsVisible ? "animate-pulse opacity-100" : "opacity-0",
+                )}
+              />
+            </span>
+            {Array.from({ length: 7 }).map((_, c) => (
+              <div key={c} className="p-0.5">
+                <div className={shimmerCell(cellsVisible)} />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <ZoneMessage
+      title={state === "error" ? "Не вдалося завантажити слоти" : emptyTitle}
+      hint={state === "error" ? undefined : emptyHint}
+      onRetry={state === "error" ? onRetry : undefined}
+      tone={state === "error" ? "error" : "muted"}
+    />
+  );
+}
+
+function MobileZoneState({
+  state,
+  cellsVisible,
+  emptyTitle,
+  emptyHint,
+  onRetry,
+}: {
+  state: Exclude<WeekBodyState, "ready">;
+  cellsVisible: boolean;
+  emptyTitle: string;
+  emptyHint?: string;
+  onRetry?: () => void;
+}) {
+  if (state === "loading") {
+    return (
+      <div
+        role="status"
+        aria-busy="true"
+        aria-live="polite"
+        className="grid grid-cols-3 gap-2 sm:grid-cols-4"
+      >
+        <span className="sr-only">Завантаження слотів…</span>
+        {Array.from({ length: 9 }).map((_, i) => (
+          <div key={i} className={shimmerCell(cellsVisible)} />
+        ))}
+      </div>
+    );
+  }
+  return (
+    <ZoneMessage
+      title={state === "error" ? "Не вдалося завантажити слоти" : emptyTitle}
+      hint={state === "error" ? undefined : emptyHint}
+      onRetry={state === "error" ? onRetry : undefined}
+      tone={state === "error" ? "error" : "muted"}
+    />
   );
 }
