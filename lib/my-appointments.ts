@@ -19,6 +19,23 @@ export interface MyAppointment {
   doctorSpecialty: string | null;
 }
 
+/** Default page size for the history (past) section. */
+export const PAST_PAGE_SIZE = 10;
+
+/** One load of /my/appointments: ALL upcoming + one page of history. */
+export interface MyAppointmentsPage {
+  /** Active (pending/confirmed) visits dated now-or-later — always full. */
+  upcoming: MyAppointment[];
+  /** History (everything else) — offset-paginated, newest first. */
+  past: {
+    items: MyAppointment[];
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
 async function toError(res: Response): Promise<BookingApiError> {
   let body: Partial<ApiError> | null = null;
   try {
@@ -34,11 +51,20 @@ async function toError(res: Response): Promise<BookingApiError> {
 }
 
 export async function getMyAppointments(
+  page: number,
+  pageSize: number,
   signal?: AbortSignal,
-): Promise<MyAppointment[]> {
-  const res = await fetch("/api/my/appointments", { cache: "no-store", signal });
+): Promise<MyAppointmentsPage> {
+  const sp = new URLSearchParams();
+  if (page > 1) sp.set("page", String(page));
+  if (pageSize !== PAST_PAGE_SIZE) sp.set("pageSize", String(pageSize));
+  const qs = sp.toString();
+  const res = await fetch(`/api/my/appointments${qs ? `?${qs}` : ""}`, {
+    cache: "no-store",
+    signal,
+  });
   if (!res.ok) throw await toError(res);
-  return (await res.json()) as MyAppointment[];
+  return (await res.json()) as MyAppointmentsPage;
 }
 
 export async function cancelMyAppointment(id: string): Promise<MyAppointment> {
