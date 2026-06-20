@@ -89,10 +89,11 @@ export function OrdersPage() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Briefly highlight the rows that just appeared after a banner-apply, so the
-  // admin sees WHAT is new. Computed by diffing the just-loaded ids against the
-  // ids that were on screen before the click.
+  // admin sees WHAT is new. "New" = created AFTER the newest order that was on
+  // screen at click time (a createdAt threshold) — not a raw id-diff, which
+  // would paint a whole different page green when applying from page 2+.
   const [highlightIds, setHighlightIds] = useState<Set<string>>(new Set());
-  const prevIdsRef = useRef<string[]>([]);
+  const prevMaxCreatedAtRef = useRef<string | null>(null);
   const wantHighlightRef = useRef(false);
   const highlightTimerRef = useRef<number | null>(null);
 
@@ -139,10 +140,14 @@ export function OrdersPage() {
         setPendingNew(0);
         // Highlight the genuinely-new rows after a banner-apply — only on the
         // page-1 load (the nav from another page can fire an interim fetch).
+        // "New" = created after the newest row that was on screen at click time.
         if (wantHighlightRef.current && req.page === 1) {
           wantHighlightRef.current = false;
-          const prev = new Set(prevIdsRef.current);
-          const fresh = data.items.filter((o) => !prev.has(o.id)).map((o) => o.id);
+          const since = prevMaxCreatedAtRef.current;
+          const fresh = (since
+            ? data.items.filter((o) => o.createdAt > since)
+            : data.items
+          ).map((o) => o.id);
           if (fresh.length > 0) {
             setHighlightIds(new Set(fresh));
             if (highlightTimerRef.current) window.clearTimeout(highlightTimerRef.current);
@@ -272,10 +277,16 @@ export function OrdersPage() {
    * zeroes the counter.
    */
   const applyPending = () => {
-    // Snapshot what's on screen now, to highlight only the genuinely-new rows
-    // once page 1 reloads.
-    prevIdsRef.current = orders.map((o) => o.id);
-    wantHighlightRef.current = true;
+    // Highlight only when applying FROM page 1 — then "new" means created after
+    // the newest order currently in view. From another page there's no page-1
+    // baseline (every page-1 row would look new), so we jump to page 1 without
+    // any highlight.
+    const onPage1 = page === 1;
+    wantHighlightRef.current = onPage1;
+    prevMaxCreatedAtRef.current =
+      onPage1 && orders.length > 0
+        ? orders.reduce((m, o) => (o.createdAt > m ? o.createdAt : m), orders[0].createdAt)
+        : null;
     resetFilters(); // clears the search debounce, resets filters, → page 1
     setPendingNew(0);
     setErrorKey(null);
