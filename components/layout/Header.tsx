@@ -168,6 +168,15 @@ function AvatarMenu({ user, role }: AvatarMenuProps) {
           >
             Мої записи
           </Link>
+          {/* Purchase history — own orders only (owner-scoped server-side). */}
+          <Link
+            href="/my/orders"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="block w-full border-b border-[color:var(--line)] px-4 py-2.5 text-left text-sm font-medium text-navy-900 transition-colors duration-150 hover:bg-cream focus:bg-cream focus:outline-none"
+          >
+            Мої замовлення
+          </Link>
           {isManager && (
             <Link
               href={adminHref}
