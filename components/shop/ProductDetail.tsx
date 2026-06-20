@@ -121,8 +121,18 @@ function ProductView({
   setQty: (id: string, qty: number) => void;
   qtyOf: (id: string) => number;
 }) {
+  const { openCart } = useCart();
   const inCart = qtyOf(product.id);
   const outOfStock = !product.inStock;
+
+  // "Перейти до покупки": open the one global cart, then let <Link> navigate to
+  // /shop. Only on a plain click — modified clicks (new tab) just open /shop in
+  // the other tab without yanking the cart open here.
+  const goToCart = (e: React.MouseEvent) => {
+    if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+      openCart();
+    }
+  };
 
   const gallery = product.images.length > 0
     ? product.images
@@ -156,16 +166,36 @@ function ProductView({
 
   return (
     <Container className="py-8 sm:py-12">
-      {/* Back link — primary back affordance at the top (the breadcrumbs below
-          give path context; the category crumb shares the same href). */}
-      <Link
-        href={catHref}
-        aria-label={backLabel}
-        className="mb-3 -ml-2 inline-flex min-h-[40px] items-center gap-2 rounded-full px-2 py-2 text-sm font-medium text-navy-700 transition-colors hover:text-mint-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
-        {backLabel}
-      </Link>
+      {/* Top row: back (left) + "go to purchase" CTA (right), symmetric. The
+          CTA opens the one global cart and navigates to /shop. CTA shows for
+          buyers only — managers have no cart. On mobile the CTA collapses to
+          its icon and the back label truncates, so the two never collide. */}
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <Link
+          href={catHref}
+          aria-label={backLabel}
+          className="-ml-2 inline-flex min-h-[40px] min-w-0 items-center gap-2 rounded-full px-2 py-2 text-sm font-medium text-navy-700 transition-colors hover:text-mint-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint"
+        >
+          <svg className="shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+          <span className="truncate">{backLabel}</span>
+        </Link>
+
+        {purchasable && (
+          <Link
+            href="/shop"
+            onClick={goToCart}
+            aria-label="Перейти до покупки"
+            className="inline-flex min-h-[40px] shrink-0 items-center gap-2 rounded-full bg-navy-900 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-black focus:outline-none focus-visible:ring-2 focus-visible:ring-mint focus-visible:ring-offset-1 sm:px-4"
+          >
+            <svg className="shrink-0" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="9" cy="21" r="1" />
+              <circle cx="20" cy="21" r="1" />
+              <path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6" />
+            </svg>
+            <span className="hidden sm:inline">Перейти до покупки</span>
+          </Link>
+        )}
+      </div>
 
       {/* Breadcrumbs */}
       <nav aria-label="Хлібні крихти" className="mb-6 flex flex-wrap items-center gap-1.5 text-sm text-navy-400">

@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useShopRole, isShopManager } from "@/hooks/useShop";
 import { useCart } from "./CartContext";
@@ -21,8 +20,9 @@ import { CartDrawer } from "./CartDrawer";
 export function HeaderCart() {
   const { ready, role } = useShopRole();
   const { isOnline: online } = useOnlineStatus();
-  const { count } = useCart();
-  const [open, setOpen] = useState(false);
+  // The drawer open state lives in CartContext (the one global cart), so other
+  // pages (e.g. the product CTA) can open it without a URL param.
+  const { count, isOpen, openCart, closeCart } = useCart();
 
   if (!ready || isShopManager(role)) return null;
 
@@ -30,9 +30,9 @@ export function HeaderCart() {
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={openCart}
         aria-haspopup="dialog"
-        aria-expanded={open}
+        aria-expanded={isOpen}
         aria-label={`Відкрити кошик, товарів: ${count}`}
         className="relative grid h-10 w-10 place-items-center rounded-full text-navy-900 transition-colors hover:bg-cream focus:outline-none focus-visible:ring-2 focus-visible:ring-mint focus-visible:ring-offset-1"
       >
@@ -62,7 +62,7 @@ export function HeaderCart() {
           </span>
         )}
       </button>
-      <CartDrawer open={open} onClose={() => setOpen(false)} online={online} />
+      <CartDrawer open={isOpen} onClose={closeCart} online={online} />
     </>
   );
 }

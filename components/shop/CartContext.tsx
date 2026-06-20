@@ -29,6 +29,11 @@ interface CartContextValue {
   /** Set when hydration dropped now-unavailable items; null otherwise. */
   notice: string | null;
   dismissNotice: () => void;
+  /** Drawer open state — lifted here so ANY page can open the one global cart
+   *  (e.g. the product page's "Перейти до покупки" CTA) without a URL param. */
+  isOpen: boolean;
+  openCart: () => void;
+  closeCart: () => void;
   add: (product: ApiProduct) => void;
   setQty: (id: string, qty: number) => void;
   inc: (id: string) => void;
@@ -110,6 +115,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
   const [hydrating, setHydrating] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
 
   // ── Hydrate once from Dexie, validating against the current catalog ────────
   useEffect(() => {
@@ -236,6 +242,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const clear = useCallback(() => setItems([]), []);
   const dismissNotice = useCallback(() => setNotice(null), []);
+  const openCart = useCallback(() => setIsOpen(true), []);
+  const closeCart = useCallback(() => setIsOpen(false), []);
 
   const value = useMemo<CartContextValue>(() => {
     const count = items.reduce((n, i) => n + i.qty, 0);
@@ -247,6 +255,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
       hydrating,
       notice,
       dismissNotice,
+      isOpen,
+      openCart,
+      closeCart,
       add,
       setQty,
       inc,
@@ -254,7 +265,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       remove,
       clear,
     };
-  }, [items, hydrating, notice, dismissNotice, add, setQty, inc, dec, remove, clear]);
+  }, [items, hydrating, notice, dismissNotice, isOpen, openCart, closeCart, add, setQty, inc, dec, remove, clear]);
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }
