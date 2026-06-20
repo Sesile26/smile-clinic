@@ -7,7 +7,13 @@ import { cn } from "@/lib/cn";
 import { btnBase, btnMint } from "@/lib/buttons";
 import { IcoChevron, IcoClose } from "@/components/icons";
 import { useLoginModal } from "@/components/ui/LoginModalProvider";
-import { createOrder, npCities, npWarehouses, ShopApiError } from "@/lib/shop-client";
+import {
+  createOrder,
+  getCheckoutDefaults,
+  npCities,
+  npWarehouses,
+  ShopApiError,
+} from "@/lib/shop-client";
 import type { DeliveryMethod, NpOption } from "@/lib/shop-types";
 import { useCart, type CartItem } from "./CartContext";
 import { CLINIC_ADDRESS, formatUAH, isValidUaPhone } from "./data";
@@ -83,6 +89,66 @@ export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
   const [touched, setTouched] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // Prefill the checkout draft from the user's LAST order (server-sourced — the
+  // last Order row — so it follows them across devices; nothing in localStorage).
+  // Runs once per signed-in drawer session; fields stay editable. No previous
+  // order → leaves the empty defaults (first purchase, no error). NP city/
+  // warehouse are stored as names, so we re-resolve their NP refs via the proxy
+  // (the picker keys off refs); if the proxy is down we skip just the NP prefill.
+  // All setState happens in async callbacks, never synchronously in the body.
+  const prefilledRef = useRef(false);
+  useEffect(() => {
+    if (!authed) {
+      // Reset so a different user (shared device) re-prefills on next sign-in.
+      prefilledRef.current = false;
+      return;
+    }
+    if (!open || prefilledRef.current) return;
+    prefilledRef.current = true;
+    const ac = new AbortController();
+    void (async () => {
+      let defaults;
+      try {
+        defaults = await getCheckoutDefaults(ac.signal);
+      } catch {
+        return; // not fatal — the user just fills the form manually
+      }
+      if (!defaults || ac.signal.aborted) return;
+      if (defaults.contactName) setName(defaults.contactName);
+      if (defaults.contactPhone) setPhone(defaults.contactPhone);
+      setDelivery(defaults.deliveryMethod);
+      // Resolve the NP address whenever the user has a known one — NOT only when
+      // the last order was NP. The API returns the last NP city/warehouse even
+      // if a later pickup order came after, so switching to Nova Poshta restores
+      // the remembered branch. For pickup-now this just pre-seeds the state; the
+      // picker only renders once the user selects Nova Poshta.
+      if (defaults.npCity) {
+        try {
+          const cities = await npCities(defaults.npCity, ac.signal);
+          const city = cities.find((c) => c.name === defaults.npCity) ?? null;
+          if (!city || ac.signal.aborted) return;
+          setNpCity(city);
+          if (defaults.npWarehouse) {
+            const whs = await npWarehouses(city.ref, "", ac.signal);
+            // Match on the "Відділення №N" part before the address (the colon),
+            // so a stored short name still resolves to the live full name. The
+            // branch number is unique per city, so this can't mis-match.
+            const key = (s: string) => s.split(":")[0].trim();
+            const target = key(defaults.npWarehouse);
+            const wh =
+              whs.find((w) => w.name === defaults.npWarehouse) ??
+              whs.find((w) => key(w.name) === target) ??
+              null;
+            if (wh && !ac.signal.aborted) setNpWarehouse(wh);
+          }
+        } catch {
+          // NP proxy unavailable — leave city/warehouse empty; delivery stays NP.
+        }
+      }
+    })();
+    return () => ac.abort();
+  }, [open, authed]);
 
   // Scroll lock + autofocus + focus restore.
   useEffect(() => {

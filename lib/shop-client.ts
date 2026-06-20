@@ -11,6 +11,7 @@ import type {
   ApiOrder,
   ApiProduct,
   ApiProductDetail,
+  CheckoutDefaults,
   CreateOrderInput,
   NpOption,
   ProductsPage,
@@ -181,6 +182,20 @@ export async function createOrder(input: CreateOrderInput): Promise<ApiOrder> {
   });
   if (!res.ok) throw await toError(res);
   return (await res.json()) as ApiOrder;
+}
+
+/** Prefill values for the checkout form, from the user's last order. Returns
+ *  null when they have no orders yet (first purchase → empty form). Auth-only:
+ *  callers fetch this only while signed in. */
+export async function getCheckoutDefaults(
+  signal?: AbortSignal,
+): Promise<CheckoutDefaults | null> {
+  const res = await fetch("/api/my/checkout-defaults", {
+    cache: "no-store",
+    signal,
+  });
+  if (!res.ok) throw await toError(res);
+  return (await res.json()) as CheckoutDefaults | null;
 }
 
 // ─── Nova Poshta (via server proxy) ──────────────────────────────────────────

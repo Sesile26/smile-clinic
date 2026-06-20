@@ -83,6 +83,21 @@ export interface ApiOrder {
   total: number;
 }
 
+/**
+ * Prefill values for the checkout form, taken from the user's LAST order so a
+ * repeat purchase doesn't retype everything. `null` when the user has no orders
+ * yet. The source of truth is the server (the last Order row) — nothing is kept
+ * in localStorage/Dexie, so it follows the user across devices.
+ */
+export interface CheckoutDefaults {
+  contactName: string;
+  contactPhone: string;
+  deliveryMethod: DeliveryMethod;
+  /** Stored only for nova_poshta; null for pickup. Names, not NP refs. */
+  npCity: string | null;
+  npWarehouse: string | null;
+}
+
 /** Nova Poshta lookup result (city or warehouse), normalised. */
 export interface NpOption {
   ref: string;
