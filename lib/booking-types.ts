@@ -15,6 +15,15 @@ export interface ApiSlot {
   status: ApiSlotStatus;
 }
 
+/** The doctor's soonest bookable slot (status=free, startsAt >= now), or null
+ *  when they have none upcoming. One light lookup — drives the "next free time"
+ *  hint without paging through weeks. */
+export interface NextFreeSlot {
+  id: string;
+  /** UTC ISO. */
+  startsAt: string;
+}
+
 export interface ApiDoctor {
   id: string;
   name: string;

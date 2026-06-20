@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppointments } from "@/hooks/useAppointments";
-import { useDoctors, useSlots } from "@/hooks/useBooking";
+import { useDoctors, useNextFreeSlot, useSlots } from "@/hooks/useBooking";
 import { useDelayedFlag } from "@/hooks/useDelayedFlag";
 import { createBooking, BookingApiError } from "@/lib/booking-client";
+import { utcToLocalCell } from "@/lib/booking-time";
 import type { ApiSlot } from "@/lib/booking-types";
 import {
   addDays,
@@ -133,6 +134,20 @@ export function BookingView({ today, online }: BookingViewProps) {
   const pending = loadingDoctors || slotsFetching;
   const showSkeletonCells = useDelayedFlag(pending, 200);
 
+  // "Next free time" hint for the chosen doctor (one light query, refetched on
+  // doctor change). Declared before the offline early-return (hook order).
+  const nextFree = useNextFreeSlot(activeDoctorId || null, online);
+  const [highlight, setHighlight] = useState<{ dateKey: string; time: string } | null>(
+    null,
+  );
+  const highlightTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (highlightTimer.current) window.clearTimeout(highlightTimer.current);
+    },
+    [],
+  );
+
   const maps = useMemo(() => indexSlots(slots), [slots]);
   const times = useMemo(() => patientTimes(slots), [slots]);
   const week = useMemo(
@@ -203,6 +218,19 @@ export function BookingView({ today, online }: BookingViewProps) {
     setView("week");
   };
 
+  // Jump to the week of the soonest free slot and flash it. Reuses pickDay's
+  // week/day switching; the highlight clears after a few seconds. If the slot is
+  // already on the visible week this just (re)flashes it in place.
+  const goToNextFree = () => {
+    if (!nextFree.slot) return;
+    const date = new Date(nextFree.slot.startsAt);
+    pickDay(date);
+    const cell = utcToLocalCell(nextFree.slot.startsAt);
+    setHighlight({ dateKey: cell.dateKey, time: cell.time });
+    if (highlightTimer.current) window.clearTimeout(highlightTimer.current);
+    highlightTimer.current = window.setTimeout(() => setHighlight(null), 4000);
+  };
+
   const title =
     view === "week" ? formatWeekRange(weekAnchor) : formatMonth(monthAnchor);
 
@@ -230,6 +258,12 @@ export function BookingView({ today, online }: BookingViewProps) {
           }
         />
       </div>
+
+      {/* "Next free time" hint for the chosen doctor. Hidden when no doctor or
+          on error (the calendar still works). */}
+      {activeDoctorId && nextFree.state !== "error" && (
+        <NextFreeHint state={nextFree.state} startsAt={nextFree.slot?.startsAt} onJump={goToNextFree} />
+      )}
 
       <CalendarToolbar
         view={view}
@@ -281,6 +315,7 @@ export function BookingView({ today, online }: BookingViewProps) {
             emptyTitle="Немає вільних місць на цей тиждень"
             emptyHint={`У ${doctor?.name ?? "обраного лікаря"} немає вільних слотів цього тижня. Спробуйте інший період або іншого лікаря.`}
             onRetry={reload}
+            highlight={highlight}
           />
         )}
       </div>
@@ -303,6 +338,62 @@ export function BookingView({ today, online }: BookingViewProps) {
         onClose={() => setModalOpen(false)}
       />
     </div>
+  );
+}
+
+/**
+ * "Next free time" hint: a small line above the calendar. When a slot is found
+ * it's a button that jumps to (and flashes) that slot. Loading and "none" are
+ * shown distinctly; the error case is hidden by the parent.
+ */
+function NextFreeHint({
+  state,
+  startsAt,
+  onJump,
+}: {
+  state: "loading" | "found" | "none" | "error";
+  startsAt?: string;
+  onJump: () => void;
+}) {
+  if (state === "loading") {
+    return (
+      <p className="mb-3 flex items-center gap-2 text-sm text-navy-400" aria-live="polite">
+        <span aria-hidden="true" className="h-2 w-2 animate-pulse rounded-full bg-mint" />
+        Шукаємо найближчий вільний час…
+      </p>
+    );
+  }
+  if (state === "none") {
+    return (
+      <p className="mb-3 text-sm text-navy-400" aria-live="polite">
+        Немає вільних слотів найближчим часом.
+      </p>
+    );
+  }
+  if (state !== "found" || !startsAt) return null;
+
+  const d = new Date(startsAt);
+  const time = utcToLocalCell(startsAt).time;
+  return (
+    <button
+      type="button"
+      onClick={onJump}
+      className="group mb-3 inline-flex items-center gap-2 rounded-full border border-mint/60 bg-mint-100/60 px-3.5 py-2 text-sm text-navy-900 transition-colors hover:border-mint hover:bg-mint-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint focus-visible:ring-offset-1"
+    >
+      <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="text-mint-600">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3 2" />
+      </svg>
+      <span>
+        Найближчий вільний час:{" "}
+        <span className="font-medium">
+          {formatDayLong(d)}, {time}
+        </span>
+      </span>
+      <span aria-hidden="true" className="text-navy-400 transition-transform group-hover:translate-x-0.5">
+        →
+      </span>
+    </button>
   );
 }
 

@@ -4,8 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, type LocalSlot } from "@/lib/db";
-import { getDoctors, getSlots } from "@/lib/booking-client";
-import type { ApiDoctor, ApiSlot } from "@/lib/booking-types";
+import { getDoctors, getNextFreeSlot, getSlots } from "@/lib/booking-client";
+import type { ApiDoctor, ApiSlot, NextFreeSlot } from "@/lib/booking-types";
 
 export type AppRole = "PATIENT" | "DOCTOR" | "STAFF" | "ADMIN";
 export type LoadState = "loading" | "ready" | "error";
@@ -215,4 +215,44 @@ export function useSlots(params: {
     reload,
     source: "mirror",
   };
+}
+
+// ─── Soonest free slot for a doctor (the "next free time" hint) ──────────────
+
+export type NextFreeState = "loading" | "found" | "none" | "error";
+
+/**
+ * The doctor's soonest bookable slot (GET /api/slots/next-free). Online only —
+ * offline (or no doctor) yields "none" without a request. Refetches when the
+ * doctor changes. An error resolves to "error" so the UI can hide the hint
+ * quietly rather than break.
+ */
+export function useNextFreeSlot(
+  doctorId: string | null,
+  online: boolean,
+): { state: NextFreeState; slot: NextFreeSlot | null } {
+  const active = online && !!doctorId;
+  const requestKey = active ? doctorId : null;
+
+  const [data, setData] = useState<{ key: string; slot: NextFreeSlot | null } | null>(
+    null,
+  );
+  const [errorKey, setErrorKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!active || !requestKey) return;
+    const ac = new AbortController();
+    getNextFreeSlot(doctorId, ac.signal)
+      .then((slot) => setData({ key: requestKey, slot }))
+      .catch((err) => {
+        if (ac.signal.aborted || err?.name === "AbortError") return;
+        setErrorKey(requestKey);
+      });
+    return () => ac.abort();
+  }, [active, requestKey, doctorId]);
+
+  if (!active) return { state: "none", slot: null };
+  if (errorKey === requestKey) return { state: "error", slot: null };
+  if (data?.key !== requestKey) return { state: "loading", slot: null };
+  return { state: data.slot ? "found" : "none", slot: data.slot };
 }

@@ -7,7 +7,13 @@
  * but this is belt-and-braces so we never read a stale free slot.
  */
 
-import type { ApiDoctor, ApiError, ApiErrorCode, ApiSlot } from "@/lib/booking-types";
+import type {
+  ApiDoctor,
+  ApiError,
+  ApiErrorCode,
+  ApiSlot,
+  NextFreeSlot,
+} from "@/lib/booking-types";
 
 export class BookingApiError extends Error {
   constructor(
@@ -53,6 +59,19 @@ export async function getSlots(
   });
   if (!res.ok) throw await toError(res);
   return (await res.json()) as ApiSlot[];
+}
+
+export async function getNextFreeSlot(
+  doctorId: string,
+  signal?: AbortSignal,
+): Promise<NextFreeSlot | null> {
+  const qs = new URLSearchParams({ doctorId });
+  const res = await fetch(`/api/slots/next-free?${qs.toString()}`, {
+    cache: "no-store",
+    signal,
+  });
+  if (!res.ok) throw await toError(res);
+  return (await res.json()) as NextFreeSlot | null;
 }
 
 export async function createSlot(

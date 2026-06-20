@@ -1,13 +1,20 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import {
   WEEKDAYS_SHORT,
+  dayKey,
   isSameDay,
   type DaySlots,
   type SlotStatus,
 } from "./data";
+
+/** A cell to briefly highlight (the "next free time" jump target). */
+export interface SlotHighlight {
+  dateKey: string;
+  time: string;
+}
 import { SlotButton, type SlotVariant } from "./SlotButton";
 
 type Mode = "manage" | "book";
@@ -39,6 +46,8 @@ interface WeekCalendarProps {
   emptyHint?: string;
   /** Retry for the "error" zone. */
   onRetry?: () => void;
+  /** Cell to flash + scroll into view (e.g. the "next free time" target). */
+  highlight?: SlotHighlight | null;
 }
 
 const SKELETON_ROWS = 8;
@@ -74,7 +83,18 @@ export function WeekCalendar({
   emptyTitle = "Немає вільних місць",
   emptyHint,
   onRetry,
+  highlight = null,
 }: WeekCalendarProps) {
+  // Scroll the flashed cell into view when a highlight target appears (the
+  // visible one — desktop grid or mobile list, whichever is on screen).
+  useEffect(() => {
+    if (!highlight) return;
+    const els = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-slot-highlight="true"]'),
+    );
+    const visible = els.find((el) => el.offsetParent !== null);
+    visible?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [highlight]);
   const times = week[0]?.slots.map((s) => s.time) ?? [];
   const rows = times.length;
   const cols = 7;
@@ -251,12 +271,17 @@ export function WeekCalendar({
                   const show =
                     mode === "manage" ||
                     (slot.status === "working" && !slot.past);
+                  const isHl =
+                    !!highlight &&
+                    time === highlight.time &&
+                    dayKey(day.date) === highlight.dateKey;
 
                   return (
                     <div
                       role="gridcell"
                       key={day.date.toISOString()}
                       className="p-0.5"
+                      data-slot-highlight={isHl ? "true" : undefined}
                     >
                       {show ? (
                         <SlotButton
@@ -272,6 +297,11 @@ export function WeekCalendar({
                           onKeyDown={onCellKeyDown(r, c)}
                           onFocusCapture={
                             focusable ? () => setActiveKey(key) : undefined
+                          }
+                          className={
+                            isHl
+                              ? "ring-2 ring-mint-600 ring-offset-1 animate-pulse"
+                              : undefined
                           }
                         />
                       ) : (
@@ -355,6 +385,7 @@ export function WeekCalendar({
               day={week[selectedDay]}
               mode={mode}
               disabled={disabled}
+              highlight={highlight}
               onActivate={(time, status) => onActivate(selectedDay, time, status)}
             />
           )}
@@ -368,11 +399,13 @@ function MobileDayList({
   day,
   mode,
   disabled,
+  highlight,
   onActivate,
 }: {
   day: DaySlots | undefined;
   mode: Mode;
   disabled?: boolean;
+  highlight?: SlotHighlight | null;
   onActivate: (time: string, status: SlotStatus) => void;
 }) {
   if (!day) return null;
@@ -390,18 +423,33 @@ function MobileDayList({
     );
   }
 
+  const hlTime =
+    highlight && dayKey(day.date) === highlight.dateKey ? highlight.time : null;
+
   return (
     <div className="grid grid-cols-3 gap-2 sm:grid-cols-4" role="group">
-      {visible.map((slot) => (
-        <SlotButton
-          key={slot.time}
-          time={slot.time}
-          variant={variantFor(slot.status, mode)}
-          past={slot.past}
-          disabled={disabled || slot.status === "booked"}
-          onClick={() => onActivate(slot.time, slot.status)}
-        />
-      ))}
+      {visible.map((slot) => {
+        const isHl = hlTime === slot.time;
+        return (
+          <div
+            key={slot.time}
+            data-slot-highlight={isHl ? "true" : undefined}
+            className={
+              isHl
+                ? "rounded-lg ring-2 ring-mint-600 ring-offset-1 animate-pulse"
+                : undefined
+            }
+          >
+            <SlotButton
+              time={slot.time}
+              variant={variantFor(slot.status, mode)}
+              past={slot.past}
+              disabled={disabled || slot.status === "booked"}
+              onClick={() => onActivate(slot.time, slot.status)}
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }
