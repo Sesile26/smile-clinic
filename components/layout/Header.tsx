@@ -9,6 +9,7 @@ import { wipeDexie } from "@/lib/db";
 import { btnBase, btnMint } from "@/lib/buttons";
 import { useLoginModal } from "@/components/ui/LoginModalProvider";
 import { NotificationsBell } from "@/components/notifications/NotificationsBell";
+import { HeaderCart } from "@/components/shop/HeaderCart";
 import { IcoArrow, IcoMenu, IcoTooth } from "@/components/icons";
 
 // Section anchors on the home page. Always prefixed with "/" so a click from
@@ -290,6 +291,9 @@ export function Header() {
         </nav>
 
         <div className="flex items-center gap-2.5">
+          {/* One global cart for the whole site — buyers only (hidden for
+              STAFF/ADMIN). Same context + drawer as /shop. */}
+          <HeaderCart />
           {status === "loading" ? (
             // Skeleton: same dimensions as the avatar / login button so the
             // header doesn't reflow when the session resolves.

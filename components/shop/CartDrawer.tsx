@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSession } from "next-auth/react";
 import { cn } from "@/lib/cn";
 import { btnBase, btnMint } from "@/lib/buttons";
@@ -58,6 +59,20 @@ export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
 
   const [step, setStep] = useState<Step>("cart");
   const [placed, setPlaced] = useState<PlacedOrder | null>(null);
+
+  // Render into document.body via a portal (SSR-safe: only after mount). The
+  // header is a `backdrop-filter` ancestor, which makes it the containing block
+  // for `position: fixed` descendants — so a drawer rendered *inside* the header
+  // would size its `fixed inset-0` against the header box (~78px), not the
+  // viewport. Portalling to <body> escapes both that containing block and the
+  // header's stacking context, so `fixed`/`z-index` resolve against the window.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    // Defer to a microtask so we never call setState synchronously in the
+    // effect body (react-hooks/set-state-in-effect) — same convention as the
+    // Nova Poshta picker below.
+    queueMicrotask(() => setMounted(true));
+  }, []);
 
   // Checkout form
   const [name, setName] = useState("");
@@ -185,7 +200,9 @@ export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
         ? "Оформлення"
         : "Готово";
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <div
       role="presentation"
       onMouseDown={(e) => {
@@ -193,6 +210,8 @@ export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
       }}
       onKeyDown={onKeyDown}
       className={cn(
+        // Full-viewport overlay (backdrop): fixed inset-0 covers the whole
+        // window; z above the sticky header (z-50).
         "fixed inset-0 z-[100] flex justify-end backdrop-blur-[6px] transition-[opacity,visibility] duration-300 ease-smooth",
         "bg-[rgba(10,22,40,0.5)]",
         open ? "visible opacity-100" : "invisible opacity-0",
@@ -204,6 +223,11 @@ export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
         aria-modal="true"
         aria-labelledby={titleId}
         className={cn(
+          // Full height = the overlay's height (fixed inset-0 → the ACTUAL
+          // visible viewport, so the mobile address bar never crops it; safer
+          // than 100dvh, which is the *largest* viewport and overshoots when the
+          // address bar is shown). The body below is overflow-y-auto, so long
+          // carts scroll inside.
           "flex h-full w-full max-w-[440px] flex-col bg-cream shadow-s3 transition-transform duration-[350ms] ease-smooth",
           open ? "translate-x-0" : "translate-x-full",
         )}
@@ -404,7 +428,8 @@ export function CartDrawer({ open, onClose, online }: CartDrawerProps) {
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
