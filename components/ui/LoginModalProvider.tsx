@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { LoginModal } from "./LoginModal";
+import { DemoAccessBanner } from "./DemoAccessBanner";
 
 interface LoginModalContextValue {
   isOpen: boolean;
@@ -40,6 +41,7 @@ export function LoginModalProvider({ children }: { children: ReactNode }) {
     <LoginModalContext.Provider value={value}>
       {children}
       <LoginModal open={isOpen} onClose={close} />
+      <DemoAccessBanner />
     </LoginModalContext.Provider>
   );
 }

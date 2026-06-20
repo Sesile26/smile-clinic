@@ -21,6 +21,7 @@ import {
   IcoLock,
   IcoMail,
   IcoShield,
+  IcoSparkle,
   IcoTooth,
 } from "@/components/icons";
 
@@ -45,6 +46,27 @@ const fieldInput =
 const fieldLabel = "text-xs font-medium tracking-[0.04em] text-navy-700";
 const fieldError = "text-xs text-red-500";
 
+/**
+ * One-click demo sign-in for visitors exploring the site. These are the seeded
+ * showcase accounts; the password is a throwaway demo value (already public in
+ * the project README), so shipping it client-side is acceptable here. Each role
+ * lands on a page that shows off its capabilities.
+ */
+const DEMO_PASSWORD = "Password123";
+interface DemoAccount {
+  email: string;
+  label: string;
+  hint: string;
+  /** Where to land after sign-in (role-appropriate). */
+  href: string;
+}
+const DEMO_ACCOUNTS: DemoAccount[] = [
+  { email: "admin@smileclinic.test", label: "Адміністратор", hint: "Повний доступ", href: "/admin" },
+  { email: "staff@smileclinic.test", label: "Реєстратор", hint: "Слоти й записи", href: "/admin" },
+  { email: "doctor@smileclinic.test", label: "Лікар", hint: "Свій розклад", href: "/admin/patients" },
+  { email: "patient1@smileclinic.test", label: "Пацієнт", hint: "Записи й покупки", href: "/" },
+];
+
 export function LoginModal({
   open,
   onClose,
@@ -59,6 +81,8 @@ export function LoginModal({
   const [showPw, setShowPw] = useState(false);
   const [status, setStatus] = useState<SubmitStatus>("idle");
   const [formError, setFormError] = useState<string | null>(null);
+  /** Email of the demo account currently signing in (for the per-button spinner). */
+  const [demoBusy, setDemoBusy] = useState<string | null>(null);
   const [pill, setPill] = useState<{ left: number; width: number }>({
     left: 4,
     width: 0,
@@ -243,6 +267,35 @@ export function LoginModal({
     await signIn("google", { callbackUrl, redirect: true });
   };
 
+  // One-click demo sign-in. Same credentials flow as the form, with the seeded
+  // account; on success we hard-navigate to the role's landing page so the
+  // destination picks up the fresh session cookie.
+  const onDemo = async (acc: DemoAccount) => {
+    if (demoBusy) return;
+    setFormError(null);
+    setDemoBusy(acc.email);
+    try {
+      const result = await signIn("credentials", {
+        email: acc.email,
+        password: DEMO_PASSWORD,
+        redirect: false,
+      });
+      if (!result?.ok || result.error) {
+        setFormError("Демо-акаунт недоступний. Спробуйте ще раз.");
+        setDemoBusy(null);
+        return;
+      }
+      // Hard navigation so the destination picks up the fresh session cookie
+      // (assign() rather than `location.href =` to keep this new code clean of
+      // the React Compiler immutability rule the rest of the file predates).
+      window.location.assign(acc.href);
+    } catch (err) {
+      console.error("[demo signin] unexpected error", err);
+      setFormError("Щось пішло не так. Спробуйте ще раз.");
+      setDemoBusy(null);
+    }
+  };
+
   // ─── Render ────────────────────────────────────────────────────────────────
 
   const submitLabel =
@@ -255,26 +308,32 @@ export function LoginModal({
   return (
     <div
       role="presentation"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
       onKeyDown={onKeyDown}
       className={cn(
-        "fixed inset-0 z-[100] grid place-items-center p-6 backdrop-blur-[10px] transition-[opacity,visibility] duration-300 ease-smooth",
+        "fixed inset-0 z-[100] overflow-y-auto backdrop-blur-[10px] transition-[opacity,visibility] duration-300 ease-smooth",
         "bg-[rgba(10,22,40,0.55)]",
         open ? "visible opacity-100" : "invisible opacity-0",
       )}
     >
+      {/* Scroll wrapper: min-h-full centres a short modal but lets a tall one
+          (e.g. the sign-up tab on a low screen) grow and scroll WITHIN the
+          overlay instead of being clipped. Clicking the padding closes. */}
       <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="loginTitle"
-        className={cn(
-          "grid w-full max-w-[880px] grid-cols-1 overflow-hidden rounded-lg bg-white shadow-s3 transition-transform duration-[450ms] ease-smooth lg:max-w-[880px] lg:grid-cols-2",
-          open ? "translate-y-0 scale-100" : "translate-y-5 scale-[0.98]",
-        )}
+        className="flex min-h-full items-center justify-center p-4 sm:p-6"
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
       >
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="loginTitle"
+          className={cn(
+            "grid w-full max-w-[880px] grid-cols-1 overflow-hidden rounded-lg bg-white shadow-s3 transition-transform duration-[450ms] ease-smooth lg:grid-cols-2",
+            open ? "translate-y-0 scale-100" : "translate-y-5 scale-[0.98]",
+          )}
+        >
         {/* Aside (hidden on small screens, per mockup) */}
         <aside className="relative hidden flex-col justify-between overflow-hidden bg-[linear-gradient(160deg,#0F1E36_0%,#0A1628_100%)] p-11 text-white lg:flex">
           <div
@@ -451,6 +510,42 @@ export function LoginModal({
             </form>
           )}
 
+          {/* ─── Demo access (sign-in tab only) ────────────────────────────── */}
+          {!isSignup && (
+            <div className="mt-5 rounded-lg border border-[color:var(--line-2)] bg-cream/50 p-3.5">
+              <div className="mb-2.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold tracking-[0.02em] text-navy-900">
+                  <IcoSparkle size={13} className="text-mint-600" />
+                  Демо-доступ
+                </span>
+                <span className="text-[11px] text-navy-400">
+                  — увійти одним кліком і подивитися сайт
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {DEMO_ACCOUNTS.map((acc) => (
+                  <button
+                    key={acc.email}
+                    type="button"
+                    onClick={() => onDemo(acc)}
+                    disabled={demoBusy !== null}
+                    aria-label={`Увійти як демо: ${acc.label}`}
+                    className="flex flex-col items-start rounded-lg border border-[color:var(--line-2)] bg-white px-3 py-2 text-left transition-colors hover:border-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <span className="text-[13px] font-medium text-navy-900">
+                      {demoBusy === acc.email ? "Входимо…" : acc.label}
+                    </span>
+                    <span className="text-[11px] text-navy-400">{acc.hint}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2.5 text-[11px] leading-[1.4] text-navy-400">
+                Спільні демо-дані для всіх відвідувачів — не вводьте сюди справжню
+                інформацію.
+              </p>
+            </div>
+          )}
+
           {/* ─── Sign-up form ──────────────────────────────────────────────── */}
           {isSignup && (
             <form onSubmit={registerForm.handleSubmit(onSignup)} noValidate>
@@ -593,6 +688,7 @@ export function LoginModal({
               </>
             )}
           </p>
+        </div>
         </div>
       </div>
     </div>
