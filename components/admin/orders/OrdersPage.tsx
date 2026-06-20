@@ -1,9 +1,10 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/cn";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { useNewOrderSignal } from "@/hooks/useNewOrderSignal";
 import { formatUAH } from "@/components/shop/data";
 import {
   getAdminOrders,
@@ -80,6 +81,21 @@ export function OrdersPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // ── Live auto-refresh (driven by the existing notifications SSE) ───────────
+  // ON by default but DELICATE: it only repaints when the admin is idle on
+  // page 1; otherwise it just counts new orders into an unobtrusive banner.
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [pendingNew, setPendingNew] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Briefly highlight the rows that just appeared after a banner-apply, so the
+  // admin sees WHAT is new. Computed by diffing the just-loaded ids against the
+  // ids that were on screen before the click.
+  const [highlightIds, setHighlightIds] = useState<Set<string>>(new Set());
+  const prevIdsRef = useRef<string[]>([]);
+  const wantHighlightRef = useRef(false);
+  const highlightTimerRef = useRef<number | null>(null);
+
   const filters: AdminOrdersQuery = {
     status: statusFilter === "all" ? null : statusFilter,
     q: debouncedQuery,
@@ -118,6 +134,24 @@ export function OrdersPage() {
         setTotal(data.total);
         setTotalPages(data.totalPages);
         setLoadedKey(requestKey);
+        // The view is now fresh (manual reload / filter / page change), so any
+        // "new orders" banner from before no longer applies.
+        setPendingNew(0);
+        // Highlight the genuinely-new rows after a banner-apply — only on the
+        // page-1 load (the nav from another page can fire an interim fetch).
+        if (wantHighlightRef.current && req.page === 1) {
+          wantHighlightRef.current = false;
+          const prev = new Set(prevIdsRef.current);
+          const fresh = data.items.filter((o) => !prev.has(o.id)).map((o) => o.id);
+          if (fresh.length > 0) {
+            setHighlightIds(new Set(fresh));
+            if (highlightTimerRef.current) window.clearTimeout(highlightTimerRef.current);
+            highlightTimerRef.current = window.setTimeout(
+              () => setHighlightIds(new Set()),
+              3500,
+            );
+          }
+        }
       })
       .catch((err) => {
         if (ac.signal.aborted || err?.name === "AbortError") return;
@@ -133,11 +167,65 @@ export function OrdersPage() {
     setReloadKey((k) => k + 1);
   };
 
+  // Snapshot the live request + interaction state so the SSE handler (which is
+  // subscribed once) always reads the latest values without re-subscribing.
+  // Updated in an effect (not during render) to avoid render-phase ref writes.
+  const liveRef = useRef({ filters, page, pageSize, autoRefresh, expanded, busyId });
+  useEffect(() => {
+    liveRef.current = { filters, page, pageSize, autoRefresh, expanded, busyId };
+  });
+
+  // Silent in-place refetch of the CURRENT page + filters — no skeleton flash,
+  // keeps pagination, sort and filters intact (see point 5).
+  const silentRefresh = useCallback(() => {
+    const { filters, page, pageSize } = liveRef.current;
+    const ac = new AbortController();
+    getAdminOrders({ ...filters, page, pageSize }, ac.signal)
+      .then((data) => {
+        setOrders(data.items);
+        setTotal(data.total);
+        setTotalPages(data.totalPages);
+        setPendingNew(0);
+      })
+      .catch(() => {
+        /* keep the current view; a manual reload can recover */
+      });
+  }, []);
+
+  // A new order arrived on the existing notifications SSE channel. Auto-apply
+  // ONLY when auto-refresh is on and the admin is idle on page 1 (nothing
+  // expanded, no status change in flight, no field/select focused). Otherwise
+  // accumulate into the banner — never repaint the table under their hands.
+  const onNewOrder = useCallback(() => {
+    const { autoRefresh, page, expanded, busyId } = liveRef.current;
+    const active = document.activeElement;
+    const interacting =
+      !!active &&
+      containerRef.current?.contains(active) === true &&
+      (active.tagName === "INPUT" ||
+        active.tagName === "SELECT" ||
+        active.tagName === "TEXTAREA");
+    const canApply =
+      autoRefresh && page === 1 && expanded.size === 0 && !busyId && !interacting;
+    if (canApply) silentRefresh();
+    else setPendingNew((n) => n + 1);
+  }, [silentRefresh]);
+
+  useNewOrderSignal(onNewOrder);
+
   // ── Filter handlers (every change → page 1) ───────────────────────────────
   const searchTimer = useRef<number | null>(null);
   useEffect(
     () => () => {
       if (searchTimer.current) window.clearTimeout(searchTimer.current);
+    },
+    [],
+  );
+  // Highlight timer cleanup lives in its own effect (kept separate from the
+  // search-timer one so each ref's lifecycle stays independent).
+  useEffect(
+    () => () => {
+      if (highlightTimerRef.current) window.clearTimeout(highlightTimerRef.current);
     },
     [],
   );
@@ -174,6 +262,28 @@ export function OrdersPage() {
     resetToFirstPage();
   };
 
+  /**
+   * Banner click → jump to page 1 with filters cleared, so the new orders
+   * (pending, newest-first) are guaranteed visible at the top. We reset the
+   * status/date/search filters (via resetFilters) because an active filter
+   * (e.g. "completed") would otherwise hide the fresh pending orders — the
+   * banner MUST reveal them. Sort is already fixed newest-first server-side
+   * (no sort toggle to reset). The main fetch effect then reloads page 1 and
+   * zeroes the counter.
+   */
+  const applyPending = () => {
+    // Snapshot what's on screen now, to highlight only the genuinely-new rows
+    // once page 1 reloads.
+    prevIdsRef.current = orders.map((o) => o.id);
+    wantHighlightRef.current = true;
+    resetFilters(); // clears the search debounce, resets filters, → page 1
+    setPendingNew(0);
+    setErrorKey(null);
+    // Force a refetch even if filters/page were already at defaults (e.g. the
+    // admin was idle-but-expanded on page 1).
+    setReloadKey((k) => k + 1);
+  };
+
   const toggle = (id: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -204,7 +314,7 @@ export function OrdersPage() {
   const rangeEnd = Math.min(page * pageSize, total);
 
   return (
-    <>
+    <div ref={containerRef}>
       {/* Toolbar: search + date range + status filter */}
       <div className="mb-5 flex flex-col gap-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
@@ -285,12 +395,44 @@ export function OrdersPage() {
               />
             ))}
           </div>
-          {!isLoading && !isError && (
-            <p className="text-xs tabular-nums text-navy-400" aria-live="polite">
-              Знайдено: {total}
-            </p>
-          )}
+          <div className="flex items-center gap-4">
+            <AutoRefreshToggle
+              checked={autoRefresh}
+              onChange={() => setAutoRefresh((v) => !v)}
+            />
+            {!isLoading && !isError && (
+              <p className="text-xs tabular-nums text-navy-400" aria-live="polite">
+                Знайдено: {total}
+              </p>
+            )}
+          </div>
         </div>
+      </div>
+
+      {/* New-orders banner. aria-live announces it without stealing focus. It
+          shows whenever orders piled up since the view was last refreshed —
+          while busy / off page 1, or when auto-refresh is off (passive). */}
+      <div aria-live="polite" className="empty:hidden">
+        {pendingNew > 0 && (
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-mint-600/30 bg-mint-100/60 px-3.5 py-2.5">
+            <span className="flex items-center gap-2 text-sm text-navy-900">
+              <span
+                aria-hidden="true"
+                className="inline-block h-2 w-2 shrink-0 animate-pulse rounded-full bg-mint-600"
+              />
+              {pendingNew === 1
+                ? "Нове замовлення"
+                : `Нові замовлення (${pendingNew})`}
+            </span>
+            <button
+              type="button"
+              onClick={applyPending}
+              className="shrink-0 rounded-full bg-navy-900 px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-black focus:outline-none focus-visible:ring-2 focus-visible:ring-mint focus-visible:ring-offset-1"
+            >
+              Оновити
+            </button>
+          </div>
+        )}
       </div>
 
       {!online && (
@@ -336,6 +478,7 @@ export function OrdersPage() {
             expanded={expanded}
             busyId={busyId}
             online={online}
+            highlightIds={highlightIds}
             onToggle={toggle}
             onStatus={changeStatus}
           />
@@ -344,6 +487,7 @@ export function OrdersPage() {
             expanded={expanded}
             busyId={busyId}
             online={online}
+            highlightIds={highlightIds}
             onToggle={toggle}
             onStatus={changeStatus}
           />
@@ -360,7 +504,7 @@ export function OrdersPage() {
           />
         </>
       )}
-    </>
+    </div>
   );
 }
 
@@ -524,6 +668,45 @@ function FilterChip({
   );
 }
 
+/**
+ * Auto-refresh switch. A real `role="switch"` button, so it's keyboard-operable
+ * out of the box (Tab to focus, Space/Enter to toggle) and announces its state.
+ */
+function AutoRefreshToggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label="Автооновлення таблиці"
+      onClick={onChange}
+      className="inline-flex items-center gap-2 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-mint focus-visible:ring-offset-1"
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          "relative h-5 w-9 rounded-full transition-colors duration-200",
+          checked ? "bg-mint-600" : "bg-navy-400/30",
+        )}
+      >
+        <span
+          className={cn(
+            "absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200",
+            checked && "translate-x-4",
+          )}
+        />
+      </span>
+      <span className="text-xs font-medium text-navy-700">Автооновлення</span>
+    </button>
+  );
+}
+
 // ─── Shared pieces ───────────────────────────────────────────────────────────
 
 /** Thin status-coloured strip pinned to the left edge of a row/card. */
@@ -654,13 +837,15 @@ interface ListProps {
   busyId: string | null;
   /** Offline → status changes are disabled. */
   online: boolean;
+  /** Rows to briefly highlight as just-arrived (after a banner-apply). */
+  highlightIds: Set<string>;
   onToggle: (id: string) => void;
   onStatus: (id: string, s: AdminOrderStatus) => void;
 }
 
 // ─── Desktop table ───────────────────────────────────────────────────────────
 
-function DesktopTable({ orders, expanded, busyId, online, onToggle, onStatus }: ListProps) {
+function DesktopTable({ orders, expanded, busyId, online, highlightIds, onToggle, onStatus }: ListProps) {
   return (
     <div className="hidden overflow-hidden rounded-xl border border-[color:var(--line)] bg-white md:block">
       <table className="w-full border-collapse text-sm">
@@ -678,15 +863,17 @@ function DesktopTable({ orders, expanded, busyId, online, onToggle, onStatus }: 
         <tbody>
           {orders.map((o) => {
             const isOpen = expanded.has(o.id);
+            const isNew = highlightIds.has(o.id);
             const panelId = `order-${o.id}-details`;
             return (
               <Fragment key={o.id}>
                 {/* Whole-row tint per status; hover is a darker step of the
-                    SAME hue so rows stay calm and readable. */}
+                    SAME hue so rows stay calm and readable. Just-arrived rows
+                    flash mint, then fade back to their status tint. */}
                 <tr
                   className={cn(
                     "border-b border-[color:var(--line)] align-top transition-colors last:border-b-0",
-                    STATUS_META[o.status].row,
+                    isNew ? "bg-mint-100" : STATUS_META[o.status].row,
                   )}
                 >
                   <td className="relative px-2 py-3">
@@ -726,7 +913,7 @@ function DesktopTable({ orders, expanded, busyId, online, onToggle, onStatus }: 
                   <tr
                     className={cn(
                       "border-b border-[color:var(--line)] last:border-b-0",
-                      STATUS_META[o.status].row,
+                      isNew ? "bg-mint-100" : STATUS_META[o.status].row,
                     )}
                   >
                     <td colSpan={7} className="px-3 pb-4 pt-0">
@@ -747,18 +934,19 @@ function DesktopTable({ orders, expanded, busyId, online, onToggle, onStatus }: 
 
 // ─── Mobile cards ────────────────────────────────────────────────────────────
 
-function MobileCards({ orders, expanded, busyId, online, onToggle, onStatus }: ListProps) {
+function MobileCards({ orders, expanded, busyId, online, highlightIds, onToggle, onStatus }: ListProps) {
   return (
     <ul className="flex flex-col gap-3 md:hidden">
       {orders.map((o) => {
         const isOpen = expanded.has(o.id);
+        const isNew = highlightIds.has(o.id);
         const panelId = `order-m-${o.id}-details`;
         return (
           <li
             key={o.id}
             className={cn(
               "relative overflow-hidden rounded-xl border border-[color:var(--line)] p-4 transition-colors",
-              STATUS_META[o.status].row,
+              isNew ? "bg-mint-100" : STATUS_META[o.status].row,
             )}
           >
             <StatusBar status={o.status} />
