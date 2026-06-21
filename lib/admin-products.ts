@@ -41,6 +41,27 @@ async function toError(res: Response): Promise<ShopApiError> {
   );
 }
 
+/**
+ * Upload a product image to Vercel Blob via the server route. Returns the
+ * public Blob URL — the caller writes it into Product.imageUrl through the
+ * normal product save (POST/PATCH). STAFF/ADMIN only (enforced server-side).
+ */
+export async function uploadProductImage(
+  file: File,
+  signal?: AbortSignal,
+): Promise<string> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch("/api/admin/products/upload", {
+    method: "POST",
+    body: form,
+    signal,
+  });
+  if (!res.ok) throw await toError(res);
+  const data = (await res.json()) as { url: string };
+  return data.url;
+}
+
 export async function getAdminProducts(
   query: AdminProductsQuery = {},
   signal?: AbortSignal,

@@ -5,8 +5,13 @@ import { cn } from "@/lib/cn";
 import { lockBodyScroll, unlockBodyScroll } from "@/lib/scroll-lock";
 import { btnBase, btnGhost, btnMint } from "@/lib/buttons";
 import { IcoClose } from "@/components/icons";
+import { uploadProductImage } from "@/lib/admin-products";
 import type { ApiProduct } from "@/lib/shop-types";
 import type { ShopCategory } from "./useShopCategories";
+
+/** Client-side mirror of the server's upload limits (UX only — server re-checks). */
+const ACCEPT_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const MAX_UPLOAD_BYTES = Math.floor(4.5 * 1024 * 1024);
 
 /** Payload the parent sends to the API (id is server-assigned on create). */
 export interface ProductFormValues {
@@ -75,6 +80,37 @@ export function ProductFormModal({
   );
   const [imageUrl, setImageUrl] = useState(initial?.imageUrl ?? "");
   const [touched, setTouched] = useState(false);
+
+  // ── Image upload (Vercel Blob via /api/admin/products/upload) ──────────────
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  const handleFile = useCallback(async (file: File | undefined | null) => {
+    if (!file) return;
+    setUploadError(null);
+    // Pre-validate client-side for instant feedback; the server re-checks.
+    if (!ACCEPT_TYPES.includes(file.type)) {
+      setUploadError("Лише зображення JPEG, PNG або WebP");
+      return;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setUploadError("Зображення завелике (макс. 4.5 МБ)");
+      return;
+    }
+    setUploading(true);
+    try {
+      const url = await uploadProductImage(file);
+      setImageUrl(url);
+    } catch (e) {
+      setUploadError(
+        e instanceof Error ? e.message : "Не вдалося завантажити зображення",
+      );
+    } finally {
+      setUploading(false);
+    }
+  }, []);
 
   // Scroll lock + autofocus + focus restore (runs once for this mount).
   useEffect(() => {
@@ -282,8 +318,96 @@ export function ProductFormModal({
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="pf-image" className={fieldLabel}>
-              URL зображення (необов’язково)
+            <span className={fieldLabel}>Зображення (необов’язково)</span>
+
+            {/* Drop zone / click to pick a file → uploads to Vercel Blob. */}
+            <div
+              role="button"
+              tabIndex={0}
+              aria-label="Завантажити зображення"
+              aria-busy={uploading}
+              onClick={() => !uploading && fileInputRef.current?.click()}
+              onKeyDown={(e) => {
+                if ((e.key === "Enter" || e.key === " ") && !uploading) {
+                  e.preventDefault();
+                  fileInputRef.current?.click();
+                }
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                if (!uploading) void handleFile(e.dataTransfer.files?.[0]);
+              }}
+              className={cn(
+                "relative grid min-h-[132px] cursor-pointer place-items-center overflow-hidden rounded-lg border border-dashed bg-cream/40 px-3 py-4 text-center transition-[border,box-shadow] duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint",
+                dragOver
+                  ? "border-mint-600 shadow-[0_0_0_3px_rgba(0,201,167,0.18)]"
+                  : "border-[color:var(--line-2)] hover:border-navy-400",
+                uploading && "pointer-events-none opacity-80",
+              )}
+            >
+              {imageUrl ? (
+                <>
+                  {/* Preview of the current image (uploaded OR pasted URL). */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={imageUrl}
+                    alt="Прев’ю зображення товару"
+                    className="max-h-[160px] w-auto rounded-md object-contain"
+                  />
+                  <button
+                    type="button"
+                    aria-label="Прибрати зображення"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setImageUrl("");
+                      setUploadError(null);
+                    }}
+                    className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-white/90 text-navy-700 shadow-s1 transition-colors hover:bg-white hover:text-navy-900"
+                  >
+                    <IcoClose size={14} />
+                  </button>
+                </>
+              ) : (
+                <span className="text-xs text-navy-500">
+                  Перетягніть фото сюди або{" "}
+                  <span className="font-medium text-navy-900 underline">
+                    оберіть файл
+                  </span>
+                  <br />
+                  JPEG, PNG або WebP, до 4.5 МБ
+                </span>
+              )}
+
+              {uploading && (
+                <div className="absolute inset-0 grid place-items-center bg-white/70 text-xs font-medium text-navy-700">
+                  Завантаження…
+                </div>
+              )}
+            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={ACCEPT_TYPES.join(",")}
+              className="hidden"
+              onChange={(e) => {
+                void handleFile(e.target.files?.[0]);
+                e.target.value = ""; // allow re-selecting the same file
+              }}
+            />
+
+            {uploadError && <span className={fieldError}>{uploadError}</span>}
+
+            {/* Alternative: paste an external URL (keeps existing placehold.co
+                products working — no upload required). */}
+            <label htmlFor="pf-image" className={cn(fieldLabel, "mt-1")}>
+              …або вставте URL зображення
             </label>
             <input
               id="pf-image"
@@ -310,19 +434,21 @@ export function ProductFormModal({
           <div className="mt-1 flex flex-col gap-2.5 sm:flex-row-reverse">
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || uploading}
               className={cn(
                 btnBase,
                 btnMint,
                 "flex-1 justify-center",
-                submitting && "opacity-70",
+                (submitting || uploading) && "opacity-70",
               )}
             >
               {submitting
                 ? "Збереження…"
-                : initial
-                  ? "Зберегти зміни"
-                  : "Додати товар"}
+                : uploading
+                  ? "Завантаження фото…"
+                  : initial
+                    ? "Зберегти зміни"
+                    : "Додати товар"}
             </button>
             <button
               type="button"
