@@ -35,6 +35,7 @@ export const PRODUCT_SELECT = {
   category: { select: { name: true } },
   stock: true,
   isActive: true,
+  isFeatured: true,
 } as const;
 
 type ProductRow = {
@@ -47,6 +48,7 @@ type ProductRow = {
   category: { name: string } | null;
   stock: number;
   isActive: boolean;
+  isFeatured: boolean;
 };
 
 /**
@@ -71,6 +73,7 @@ export function toApiProduct(
     inStock: p.stock > 0,
     ...(includeStock ? { stock: p.stock } : {}),
     isActive: p.isActive,
+    isFeatured: p.isFeatured,
   };
 }
 

@@ -23,6 +23,9 @@ export interface ApiProduct {
    *  and guests (the server omits it — see lib/shop-server toApiProduct). */
   stock?: number;
   isActive: boolean;
+  /** Featured products sort first (among in-stock). Optional: the offline Dexie
+   *  mirror doesn't carry it (offline stays stock-first), so it may be absent. */
+  isFeatured?: boolean;
 }
 
 /** A product category with its live product count (for the manage panel). */

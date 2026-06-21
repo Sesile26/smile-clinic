@@ -225,6 +225,9 @@ model Product {
   // Soft delete: "видалення" товару адміном = isActive=false. Реального DELETE
   // не робимо — інакше зламалися б OrderItem наявних замовлень (FK Restrict).
   isActive    Boolean   @default(true)
+  // "Обраний" товар: спливає першим у каталозі — але лише серед наявних
+  // (featured без залишку вгору не йде; порядок задає GET /api/products).
+  isFeatured  Boolean   @default(false)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -232,6 +235,7 @@ model Product {
 
   @@index([isActive])
   @@index([categoryId])
+  @@index([isFeatured])
 }
 
 model Order {

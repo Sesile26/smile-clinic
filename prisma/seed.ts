@@ -298,7 +298,9 @@ async function main() {
     // ── 7. Seed 100 products ──────────────────────────────────────────────────
     const gen = generateProducts();
     await prisma.product.createMany({
-      data: gen.map((p) => ({
+      // Mark a handful of IN-STOCK products as featured (demo) — every 6th with
+      // stock, so they actually surface first in the catalog.
+      data: gen.map((p, i) => ({
         name: p.name,
         description: p.description,
         longDescription: p.longDescription,
@@ -308,6 +310,7 @@ async function main() {
         imageUrl: p.imageUrl,
         images: p.images,
         isActive: true,
+        isFeatured: p.stock > 0 && i % 6 === 0,
       })),
     });
     const products = await prisma.product.findMany({

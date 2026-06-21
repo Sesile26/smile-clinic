@@ -91,11 +91,22 @@ export function ProductCard({
           </>
         )}
 
-        {product.categoryName && (
-          <span className="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-medium text-navy-900">
-            {product.categoryName}
-          </span>
-        )}
+        {/* Left-top badge stack: "Рекомендовано" (featured) above the category. */}
+        <div className="absolute left-3 top-3 flex flex-col items-start gap-1.5">
+          {product.isFeatured && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-mint px-2.5 py-1 text-[11px] font-medium text-navy-900">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+              </svg>
+              Рекомендовано
+            </span>
+          )}
+          {product.categoryName && (
+            <span className="rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-medium text-navy-900">
+              {product.categoryName}
+            </span>
+          )}
+        </div>
 
         {outOfStock && (
           <span className="absolute right-3 top-3 rounded-full bg-navy-900/90 px-2.5 py-1 text-[11px] font-medium text-white">

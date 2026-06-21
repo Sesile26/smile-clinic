@@ -158,7 +158,7 @@ export async function createProduct(input: ProductInput): Promise<ApiProduct> {
 
 export async function updateProduct(
   id: string,
-  input: Partial<ProductInput> & { isActive?: boolean },
+  input: Partial<ProductInput> & { isActive?: boolean; isFeatured?: boolean },
 ): Promise<ApiProduct> {
   const res = await fetch(`/api/products/${id}`, {
     method: "PATCH",

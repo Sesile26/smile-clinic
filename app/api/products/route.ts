@@ -41,9 +41,11 @@ function escapeLike(s: string): string {
 }
 
 // Cursor = the last row's sort key (rank, createdAt, id), base64-encoded. `rank`
-// is 1 for in-stock, 0 for out-of-stock — the primary sort group.
+// is the primary sort group: 2 = featured & in-stock, 1 = in-stock, 0 =
+// out-of-stock (featured doesn't lift a 0-stock product — it can't be bought).
+type Rank = 0 | 1 | 2;
 interface Cursor {
-  r: 0 | 1;
+  r: Rank;
   t: string; // createdAt ISO
   id: string;
 }
@@ -53,7 +55,11 @@ function encodeCursor(c: Cursor): string {
 function decodeCursor(raw: string): Cursor | null {
   try {
     const o = JSON.parse(Buffer.from(raw, "base64url").toString());
-    if ((o.r === 0 || o.r === 1) && typeof o.t === "string" && typeof o.id === "string") {
+    if (
+      (o.r === 0 || o.r === 1 || o.r === 2) &&
+      typeof o.t === "string" &&
+      typeof o.id === "string"
+    ) {
       return o as Cursor;
     }
   } catch {
@@ -61,6 +67,15 @@ function decodeCursor(raw: string): Cursor | null {
   }
   return null;
 }
+
+/** Rank of a row: featured+in-stock (2) > in-stock (1) > out-of-stock (0). */
+function rankOf(stock: number, isFeatured: boolean): Rank {
+  if (stock <= 0) return 0;
+  return isFeatured ? 2 : 1;
+}
+
+// SQL form of the same rank, used in both the keyset filter and ORDER BY.
+const RANK_SQL = Prisma.sql`(CASE WHEN p.stock > 0 AND p."isFeatured" THEN 2 WHEN p.stock > 0 THEN 1 ELSE 0 END)`;
 
 type RawRow = {
   id: string;
@@ -71,6 +86,7 @@ type RawRow = {
   categoryName: string | null;
   stock: number;
   isActive: boolean;
+  isFeatured: boolean;
   price: number;
   createdAt: Date;
 };
@@ -87,6 +103,7 @@ function rawToApi(r: RawRow, includeStock: boolean): ApiProduct {
     inStock: r.stock > 0,
     ...(includeStock ? { stock: r.stock } : {}),
     isActive: r.isActive,
+    isFeatured: r.isFeatured,
   };
 }
 
@@ -164,25 +181,23 @@ export async function GET(request: Request) {
   // Keyset: rows strictly AFTER the cursor in (rank DESC, createdAt DESC, id DESC).
   const pageFilters = [...filters];
   if (cursor) {
-    const rank = Prisma.sql`(CASE WHEN p.stock > 0 THEN 1 ELSE 0 END)`;
     const t = new Date(cursor.t);
     pageFilters.push(Prisma.sql`(
-      ${rank} < ${cursor.r}
-      OR (${rank} = ${cursor.r} AND p."createdAt" < ${t})
-      OR (${rank} = ${cursor.r} AND p."createdAt" = ${t} AND p.id < ${cursor.id})
+      ${RANK_SQL} < ${cursor.r}
+      OR (${RANK_SQL} = ${cursor.r} AND p."createdAt" < ${t})
+      OR (${RANK_SQL} = ${cursor.r} AND p."createdAt" = ${t} AND p.id < ${cursor.id})
     )`);
   }
 
   try {
     const rows = await prisma.$queryRaw<RawRow[]>(Prisma.sql`
       SELECT p.id, p.name, p.description, p."imageUrl", p."categoryId",
-             c.name AS "categoryName", p.stock, p."isActive",
+             c.name AS "categoryName", p.stock, p."isActive", p."isFeatured",
              p."price"::float8 AS price, p."createdAt"
       FROM "Product" p
       LEFT JOIN "Category" c ON c.id = p."categoryId"
       WHERE ${Prisma.join(pageFilters, " AND ")}
-      ORDER BY (CASE WHEN p.stock > 0 THEN 1 ELSE 0 END) DESC,
-               p."createdAt" DESC, p.id DESC
+      ORDER BY ${RANK_SQL} DESC, p."createdAt" DESC, p.id DESC
       LIMIT ${limit + 1}
     `);
 
@@ -198,7 +213,7 @@ export async function GET(request: Request) {
     const nextCursor =
       hasMore && last
         ? encodeCursor({
-            r: last.stock > 0 ? 1 : 0,
+            r: rankOf(last.stock, last.isFeatured),
             t: last.createdAt.toISOString(),
             id: last.id,
           })

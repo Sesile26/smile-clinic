@@ -142,6 +142,9 @@ export async function PATCH(
   if (typeof b.isActive === "boolean") {
     data.isActive = b.isActive;
   }
+  if (typeof b.isFeatured === "boolean") {
+    data.isFeatured = b.isFeatured;
+  }
 
   try {
     const updated = await prisma.product.update({
