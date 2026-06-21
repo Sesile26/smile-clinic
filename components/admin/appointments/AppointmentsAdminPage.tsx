@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { cn } from "@/lib/cn";
@@ -37,7 +38,12 @@ export function AppointmentsAdminPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { data: session } = useSession();
-  const isDoctor = session?.user?.role === "DOCTOR";
+  const role = session?.user?.role;
+  const isDoctor = role === "DOCTOR";
+  // Everyone who can view this page (STAFF/ADMIN/DOCTOR) can open /admin/patients;
+  // a DOCTOR only reaches their own patient there (server re-checks). If a role
+  // ever lands here without patients access, the name stays plain text.
+  const canViewPatients = role === "DOCTOR" || role === "STAFF" || role === "ADMIN";
 
   // ── URL state ─────────────────────────────────────────────────────────────
   const rawPage = Number(searchParams.get("page"));
@@ -369,7 +375,7 @@ export function AppointmentsAdminPage() {
                       {formatDateTime(a.date)}
                     </td>
                     <td className="px-3 py-3">
-                      <div className="font-medium text-navy-900">{a.patientName}</div>
+                      <PatientName patientId={a.patientId} name={a.patientName} canView={canViewPatients} />
                       <div className="text-xs tabular-nums text-navy-400">{a.patientPhone ?? "—"}</div>
                     </td>
                     <td className="px-3 py-3 text-navy-700">
@@ -404,7 +410,7 @@ export function AppointmentsAdminPage() {
                   <StatusBadge status={a.status} />
                 </div>
                 <div className="mt-2 text-sm">
-                  <div className="font-medium text-navy-900">{a.patientName}</div>
+                  <PatientName patientId={a.patientId} name={a.patientName} canView={canViewPatients} />
                   <div className="text-xs tabular-nums text-navy-400">{a.patientPhone ?? "—"}</div>
                   <div className="mt-1 text-navy-700">
                     {a.doctorName}
@@ -438,6 +444,34 @@ export function AppointmentsAdminPage() {
         </>
       )}
     </>
+  );
+}
+
+// ─── Patient name → profile link ─────────────────────────────────────────────
+
+/** Patient name as a link to their profile. Lives in its own cell, separate
+ *  from the action buttons, so clicking actions never triggers navigation.
+ *  Access to /admin/patients is re-checked server-side (a DOCTOR only reaches
+ *  their own patient); a role without access shows plain text. */
+function PatientName({
+  patientId,
+  name,
+  canView,
+}: {
+  patientId: string;
+  name: string;
+  canView: boolean;
+}) {
+  if (!canView) {
+    return <div className="font-medium text-navy-900">{name}</div>;
+  }
+  return (
+    <Link
+      href={`/admin/patients?patient=${encodeURIComponent(patientId)}`}
+      className="font-medium text-navy-900 underline-offset-2 hover:text-mint-600 hover:underline focus:rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-mint"
+    >
+      {name}
+    </Link>
   );
 }
 

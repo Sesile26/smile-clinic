@@ -19,6 +19,8 @@ export interface AdminAppointment {
   /** ISO datetime (UTC). */
   date: string;
   status: AppointmentStatus;
+  /** For linking to the patient profile (/admin/patients?patient=<id>). */
+  patientId: string;
   patientName: string;
   patientPhone: string | null;
   doctorId: string;
