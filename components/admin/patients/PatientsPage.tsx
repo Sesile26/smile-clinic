@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { cn } from "@/lib/cn";
+import { ShopApiError } from "@/lib/shop-client";
 import {
   getAdminPatient,
   getAdminPatients,
@@ -76,8 +78,20 @@ export function PatientsPage() {
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [errorKey, setErrorKey] = useState<string | null>(null);
 
-  // Selected patient (NOT in the URL — only the list state is shareable).
-  const [selected, setSelected] = useState<AdminPatientRow | null>(null);
+  // The open patient is driven by the URL (?patient=<id>) — NOT local state —
+  // so it survives reload / direct links and browser back returns to the list.
+  const selectedId = searchParams.get("patient");
+  const patientHref = (id: string) => {
+    const sp = new URLSearchParams(searchParams.toString());
+    sp.set("patient", id);
+    return `${pathname}?${sp.toString()}`;
+  };
+  const listHref = () => {
+    const sp = new URLSearchParams(searchParams.toString());
+    sp.delete("patient");
+    const s = sp.toString();
+    return `${pathname}${s ? `?${s}` : ""}`;
+  };
 
   useEffect(() => {
     const ac = new AbortController();
@@ -118,28 +132,6 @@ export function PatientsPage() {
     setReloadKey((k) => k + 1);
   };
 
-  // Deep link: ?patient=<id> opens that patient once. The single-patient fetch
-  // is SERVER-gated (a DOCTOR only resolves their own patient — 403/404
-  // otherwise), so the param can't bypass access; on denial we just fall back
-  // to the list. The param is consumed (stripped) so a refresh isn't sticky.
-  const patientParam = searchParams.get("patient");
-  useEffect(() => {
-    if (!patientParam) return;
-    const ac = new AbortController();
-    getAdminPatient(patientParam, ac.signal)
-      .then((p) => setSelected(p))
-      .catch((err) => {
-        // 403/404 (not the doctor's patient) or other → don't open.
-        if (ac.signal.aborted || err?.name === "AbortError") return;
-      })
-      .finally(() => {
-        if (ac.signal.aborted) return;
-        router.replace(hrefFor({})); // drop ?patient, keep q/page/pageSize
-      });
-    return () => ac.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [patientParam]);
-
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
@@ -149,11 +141,8 @@ export function PatientsPage() {
 
   return (
     <>
-      {selected ? (
-        <PatientDetail
-          patient={selected}
-          onBack={() => setSelected(null)}
-        />
+      {selectedId ? (
+        <PatientDetail key={selectedId} patientId={selectedId} backHref={listHref()} />
       ) : isLoading ? (
         <SkeletonList />
       ) : isError ? (
@@ -211,8 +200,8 @@ export function PatientsPage() {
               <p className="mb-2 text-xs tabular-nums text-navy-400" aria-live="polite">
                 Знайдено: {total}
               </p>
-              <PatientsTable patients={items} onOpen={setSelected} />
-              <PatientsCards patients={items} onOpen={setSelected} />
+              <PatientsTable patients={items} onOpen={(p) => router.push(patientHref(p.id))} />
+              <PatientsCards patients={items} onOpen={(p) => router.push(patientHref(p.id))} />
               <PaginationPanel
                 page={page}
                 totalPages={totalPages}
@@ -352,26 +341,49 @@ function PatientsCards({ patients, onOpen }: ListProps) {
 // ─── Detail: one patient's appointment history ───────────────────────────────
 
 function PatientDetail({
-  patient,
-  onBack,
+  patientId,
+  backHref,
 }: {
-  patient: AdminPatientRow;
-  onBack: () => void;
+  patientId: string;
+  /** List URL to return to (?patient stripped) — used by the back link. */
+  backHref: string;
 }) {
+  // Patient card (header) AND the access gate: a DOCTOR opening a patient who
+  // isn't theirs (or a missing id) gets 404/403 here → "not found / no access",
+  // never a blank screen. The URL param can't bypass this server check.
+  const [card, setCard] = useState<AdminPatientRow | null>(null);
+  const [cardState, setCardState] = useState<"loading" | "ready" | "denied" | "error">(
+    "loading",
+  );
+  const [cardKey, setCardKey] = useState(0);
+  useEffect(() => {
+    const ac = new AbortController();
+    getAdminPatient(patientId, ac.signal)
+      .then((p) => {
+        setCard(p);
+        setCardState("ready");
+      })
+      .catch((err) => {
+        if (ac.signal.aborted || err?.name === "AbortError") return;
+        const status = err instanceof ShopApiError ? err.status : 0;
+        setCardState(status === 404 || status === 403 ? "denied" : "error");
+      });
+    return () => ac.abort();
+  }, [patientId, cardKey]);
+
+  // History: all upcoming + one paginated page of past. Past page is LOCAL
+  // panel state (the patient is remounted per id via key, so it resets).
   const [data, setData] = useState<AdminPatientHistory | null>(null);
-  // Past page lives in LOCAL panel state (not the URL), so it never disturbs
-  // the ?patient=<id> deep link. Upcoming is always all; only past paginates.
   const [pastPage, setPastPage] = useState(1);
   const [loadedPage, setLoadedPage] = useState<number | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
-  // Derived error (errorKey vs requestKey) — avoids a synchronous setState in
-  // the effect body; a reload bumps reloadKey → key changes → error clears.
   const [errorKey, setErrorKey] = useState<string | null>(null);
-  const requestKey = `${patient.id}|${pastPage}|${reloadKey}`;
+  const requestKey = `${patientId}|${pastPage}|${reloadKey}`;
 
   useEffect(() => {
+    if (cardState !== "ready") return; // wait until access is confirmed
     const ac = new AbortController();
-    getPatientHistory(patient.id, pastPage, ac.signal)
+    getPatientHistory(patientId, pastPage, ac.signal)
       .then((d) => {
         setData(d);
         setLoadedPage(pastPage);
@@ -381,7 +393,7 @@ function PatientDetail({
         setErrorKey(requestKey);
       });
     return () => ac.abort();
-  }, [patient.id, pastPage, reloadKey, requestKey]);
+  }, [patientId, pastPage, reloadKey, requestKey, cardState]);
 
   const errored = errorKey === requestKey;
   const reload = () => setReloadKey((k) => k + 1);
@@ -390,25 +402,35 @@ function PatientDetail({
 
   return (
     <div>
-      <button
-        type="button"
-        onClick={onBack}
+      <Link
+        href={backHref}
         className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-[color:var(--line-2)] bg-white px-3.5 py-2 text-sm font-medium text-navy-700 transition-colors hover:border-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="m15 18-6-6 6-6" />
         </svg>
         До списку
-      </button>
+      </Link>
 
+      {cardState === "loading" ? (
+        <SkeletonList rows={5} />
+      ) : cardState === "denied" ? (
+        <EmptyState
+          title="Пацієнта не знайдено"
+          hint="Пацієнт не існує або у вас немає доступу до нього."
+        />
+      ) : cardState === "error" ? (
+        <ErrorBanner onRetry={() => setCardKey((k) => k + 1)} />
+      ) : !card ? null : (
+      <>
       <div className="mb-5 rounded-xl border border-[color:var(--line)] bg-white p-5">
         <h2 className="font-serif text-[24px] leading-tight tracking-[-0.01em] text-navy-900">
-          {patient.name}
+          {card.name}
         </h2>
         <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm text-navy-400">
-          <span className="tabular-nums">{patient.phone ?? "—"}</span>
-          <span>{patient.email ?? "—"}</span>
-          <span>Записів: {patient.appointmentCount}</span>
+          <span className="tabular-nums">{card.phone ?? "—"}</span>
+          <span>{card.email ?? "—"}</span>
+          <span>Записів: {card.appointmentCount}</span>
         </div>
       </div>
 
@@ -453,6 +475,8 @@ function PatientDetail({
             )}
           </section>
         </div>
+      )}
+      </>
       )}
     </div>
   );
