@@ -12,9 +12,11 @@ const STAFF_ROUTES = ["/dashboard", "/patients", "/appointments", "/admin"];
 // the generic /admin staff-only rule. Server APIs re-scope to the doctor.
 const MANAGER_ROUTES = ["/admin/patients", "/admin/appointments"];
 
-// Routes inside the staff area that require ADMIN specifically (user & role
-// management). Checked BEFORE STAFF_ROUTES so STAFF is bounced home here.
-const ADMIN_ROUTES = ["/admin/users"];
+// Routes inside the staff area that require ADMIN specifically. /admin/users is
+// now STAFF+ADMIN (via the generic /admin staff rule); STAFF gets LIMITED rights
+// enforced server-side in the role API (can't grant/modify ADMIN). No page route
+// is ADMIN-only right now — array kept for the mechanism.
+const ADMIN_ROUTES: string[] = [];
 
 // Routes that require any authenticated user (role-specific UI is decided in
 // the page itself — /booking shows slot management to doctors/staff/admin and

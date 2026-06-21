@@ -32,10 +32,11 @@ import { getSpecialties, type ApiSpecialty } from "@/lib/specialties";
 const SEARCH_DEBOUNCE_MS = 300;
 
 /**
- * User & role management — ADMIN only (tab hidden + proxy guard + API check).
- * Real data from /api/admin/users; the API enforces every rule (own-role,
- * last-admin, doctor link/unlink) — the UI just reflects results and surfaces
- * server errors. The signed-in admin's own row is locked.
+ * User & role management — STAFF + ADMIN (tab + proxy + API). ADMIN has full
+ * control; STAFF is LIMITED: no ADMIN option in the select and admin rows are
+ * locked. The API enforces every rule server-side (own-role, last-admin, doctor
+ * link/unlink, AND the STAFF escalation guards) — the UI just reflects results
+ * and surfaces server errors. The caller's own row is always locked.
  */
 export function UsersAdminPage() {
   const router = useRouter();
@@ -43,6 +44,9 @@ export function UsersAdminPage() {
   const searchParams = useSearchParams();
   const { data: session } = useSession();
   const selfId = session?.user?.id ?? null;
+  // ADMIN has full control; STAFF gets limited rights (no ADMIN option, can't
+  // touch admin rows). The server enforces this regardless of the UI.
+  const canAdmin = session?.user?.role === "ADMIN";
 
   // ── URL state ─────────────────────────────────────────────────────────────
   const rawPage = Number(searchParams.get("page"));
@@ -258,7 +262,7 @@ export function UsersAdminPage() {
                         <LinkageCell user={u} specialties={specialties} onChanged={onSpecialtyChanged} onError={setToast} />
                       </td>
                       <td className="px-3 py-3">
-                        <RoleSelect user={u} isSelf={isSelf} onPick={(to) => setPending({ user: u, to })} />
+                        <RoleSelect user={u} isSelf={isSelf} canAdmin={canAdmin} onPick={(to) => setPending({ user: u, to })} />
                       </td>
                     </tr>
                   );
@@ -288,7 +292,7 @@ export function UsersAdminPage() {
                     <div><dt className="text-navy-400">Привʼязка</dt><dd className="text-navy-700"><LinkageCell user={u} specialties={specialties} onChanged={onSpecialtyChanged} onError={setToast} /></dd></div>
                   </dl>
                   <div className="mt-3 border-t border-[color:var(--line)] pt-3">
-                    <RoleSelect user={u} isSelf={isSelf} onPick={(to) => setPending({ user: u, to })} />
+                    <RoleSelect user={u} isSelf={isSelf} canAdmin={canAdmin} onPick={(to) => setPending({ user: u, to })} />
                   </div>
                 </li>
               );
@@ -427,21 +431,46 @@ function Avatar({ name }: { name: string }) {
   );
 }
 
-function RoleSelect({ user, isSelf, onPick }: { user: AdminUser; isSelf: boolean; onPick: (to: Role) => void }) {
+function RoleSelect({
+  user,
+  isSelf,
+  canAdmin,
+  onPick,
+}: {
+  user: AdminUser;
+  isSelf: boolean;
+  /** Caller is ADMIN → full control. STAFF can't pick ADMIN or touch admins. */
+  canAdmin: boolean;
+  onPick: (to: Role) => void;
+}) {
+  // STAFF can't modify a user who is currently ADMIN (server enforces too).
+  const lockedAdminRow = !canAdmin && user.role === "ADMIN";
+  const disabled = isSelf || lockedAdminRow;
+  // STAFF: drop the ADMIN option (keep it only as the current value of an admin
+  // row, so the disabled select still displays «Адміністратор»).
+  const options = ROLE_ORDER.filter(
+    (r) => canAdmin || r !== "ADMIN" || r === user.role,
+  );
   return (
     <label className="inline-flex items-center">
       <span className="sr-only">Роль користувача {user.name ?? user.email}</span>
       <select
         value={user.role}
-        disabled={isSelf}
-        title={isSelf ? "Не можна змінити власну роль" : undefined}
+        disabled={disabled}
+        title={
+          isSelf
+            ? "Не можна змінити власну роль"
+            : lockedAdminRow
+              ? "Керує лише адміністратор"
+              : undefined
+        }
         onChange={(e) => { const to = e.target.value as Role; if (to !== user.role) onPick(to); }}
         className={cn(
           "rounded-lg border py-1.5 pl-2.5 pr-7 text-xs font-medium outline-none transition-[border,box-shadow] focus:border-navy-900 focus:shadow-[0_0_0_3px_rgba(0,201,167,0.18)] disabled:cursor-not-allowed disabled:opacity-50",
           ROLE_META[user.role].badge,
         )}
       >
-        {ROLE_ORDER.map((r) => (
+        {options.map((r) => (
           <option key={r} value={r} className="bg-white text-navy-900">{ROLE_META[r].label}</option>
         ))}
       </select>

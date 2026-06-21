@@ -75,8 +75,13 @@ export async function PATCH(
 ) {
   const actor = await getActor();
   if (!actor) return shopError(401, "unauthorized", "Потрібен вхід");
-  if (actor.role !== Role.ADMIN) {
-    return shopError(403, "forbidden", "Лише для адміністратора");
+  // ADMIN: full control. STAFF: LIMITED (PATIENT/DOCTOR/STAFF only, never ADMIN
+  // and never an admin user) — enforced below, independent of the UI. Anyone
+  // else is rejected.
+  const isAdminActor = actor.role === Role.ADMIN;
+  const isStaffActor = actor.role === Role.STAFF;
+  if (!isAdminActor && !isStaffActor) {
+    return shopError(403, "forbidden", "Немає доступу");
   }
 
   const { id } = await params;
@@ -102,6 +107,15 @@ export async function PATCH(
     return shopError(400, "validation", "Невалідна роль");
   }
   const role = newRole as Role;
+
+  // STAFF privilege-escalation guard: cannot GRANT the ADMIN role (to anyone,
+  // including themselves). Rejected regardless of what the UI shows.
+  if (isStaffActor && role === Role.ADMIN) {
+    console.warn(
+      `[role] escalation blocked: STAFF ${actor.userId} tried to set ADMIN on ${id}`,
+    );
+    return shopError(403, "forbidden", "Персонал не може призначати роль адміністратора");
+  }
 
   // Validate DOCTOR binding inputs up front. A new doctor needs a name; the
   // specialty is chosen from the directory by id (or null = "Без спеціальності").
@@ -136,6 +150,15 @@ export async function PATCH(
       select: { role: true },
     });
     if (!target) return shopError(404, "not_found", "Користувача не знайдено");
+
+    // STAFF privilege-escalation guard: cannot MODIFY a user who is currently
+    // ADMIN (no demoting/touching admins). Rejected before any change.
+    if (isStaffActor && target.role === Role.ADMIN) {
+      console.warn(
+        `[role] escalation blocked: STAFF ${actor.userId} tried to modify ADMIN ${id}`,
+      );
+      return shopError(403, "forbidden", "Персонал не може змінювати адміністратора");
+    }
 
     // No-op (same role, no doctor re-bind) — return current state.
     if (target.role === role && role !== Role.DOCTOR) {

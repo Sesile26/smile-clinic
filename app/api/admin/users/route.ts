@@ -2,13 +2,14 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { Role } from "@/lib/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
-import { getActor, shopError } from "@/lib/shop-server";
+import { getActor, isStaff, shopError } from "@/lib/shop-server";
 import type { AdminUser, AdminUsersPage, Linkage } from "@/lib/admin-users";
 
 /**
  * GET /api/admin/users — user list with role + linkage (Patient/Doctor).
- * ADMIN ONLY (re-checked here, independent of the proxy guard). Search by
- * name/email, filter by role, offset pagination (page/pageSize 25|50|100).
+ * STAFF + ADMIN (re-checked here, independent of the proxy guard). Both roles
+ * read the full list; the WRITE endpoint (role PATCH) is where STAFF's limited
+ * rights are enforced. Search by name/email, filter by role, offset pagination.
  */
 
 const PAGE_SIZES = [25, 50, 100];
@@ -35,8 +36,8 @@ function toLinkage(u: {
 export async function GET(request: Request) {
   const actor = await getActor();
   if (!actor) return shopError(401, "unauthorized", "Потрібен вхід");
-  if (actor.role !== Role.ADMIN) {
-    return shopError(403, "forbidden", "Лише для адміністратора");
+  if (!isStaff(actor.role)) {
+    return shopError(403, "forbidden", "Немає доступу");
   }
 
   const { searchParams } = new URL(request.url);

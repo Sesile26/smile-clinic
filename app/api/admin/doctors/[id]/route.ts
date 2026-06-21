@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@/lib/generated/prisma/client";
-import { Role } from "@/lib/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
-import { getActor, shopError } from "@/lib/shop-server";
+import { getActor, isStaff, shopError } from "@/lib/shop-server";
 import type { AdminDoctor } from "@/lib/admin-users";
 
 /**
- * PATCH /api/admin/doctors/[id] — update a doctor. ADMIN ONLY (aligned with the
- * Users tab; re-checked here independently of the proxy guard).
+ * PATCH /api/admin/doctors/[id] — update a doctor. STAFF + ADMIN (aligned with
+ * the Users tab, where STAFF may change a doctor's specialty; re-checked here
+ * independently of the proxy guard).
  *
  * General by design — the body may carry more doctor fields later (e.g. name) —
  * but for now the meaningful field is `specialtyId` (string | null):
@@ -23,8 +23,8 @@ type RouteContext = { params: Promise<{ id: string }> };
 export async function PATCH(request: Request, { params }: RouteContext) {
   const actor = await getActor();
   if (!actor) return shopError(401, "unauthorized", "Потрібен вхід");
-  if (actor.role !== Role.ADMIN) {
-    return shopError(403, "forbidden", "Лише для адміністратора");
+  if (!isStaff(actor.role)) {
+    return shopError(403, "forbidden", "Немає доступу");
   }
 
   const { id } = await params;
