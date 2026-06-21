@@ -18,7 +18,6 @@ import { IcoArrow, IcoMenu, IcoTooth } from "@/components/icons";
 const NAV_LINKS = [
   { href: "/#services", label: "Послуги" },
   { href: "/#doctors", label: "Лікарі" },
-  { href: "/#prices", label: "Ціни" },
   { href: "/#contacts", label: "Контакти" },
 ];
 
