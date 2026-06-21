@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "icons": "node scripts/generate-icons.mjs",
-    "db:seed": "node --import tsx prisma/seed.ts"
+    "db:seed": "node --import tsx prisma/seed.ts",
+    "postinstall": "prisma generate"
   },
   "prisma": {
     "seed": "node --import tsx prisma/seed.ts"
