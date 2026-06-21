@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { cn } from "@/lib/cn";
 import { wipeDexie } from "@/lib/db";
+import { lockBodyScroll, unlockBodyScroll } from "@/lib/scroll-lock";
 import { btnBase, btnMint } from "@/lib/buttons";
 import { useLoginModal } from "@/components/ui/LoginModalProvider";
 import { NotificationsBell } from "@/components/notifications/NotificationsBell";
@@ -32,7 +34,9 @@ function Logo() {
         <IcoTooth size={16} className="text-white" />
         <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-mint" />
       </span>
-      SmileClinic
+      {/* Wordmark hides at the burger breakpoint (<lg) — icon-only on mobile;
+          the link keeps its aria-label so it's still "SmileClinic — на головну". */}
+      <span className="hidden lg:inline">SmileClinic</span>
     </Link>
   );
 }
@@ -209,6 +213,66 @@ export function Header() {
   const onShop = pathname === "/shop";
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  // Portal target is client-only (SSR-safe), and the burger overlay must escape
+  // the header's backdrop-filter containing block (else `fixed` would size to
+  // the header) — so it renders into document.body.
+  const [mounted, setMounted] = useState(false);
+  const burgerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    queueMicrotask(() => setMounted(true));
+  }, []);
+
+  const closeMenu = useCallback(() => {
+    setMenuOpen(false);
+    burgerRef.current?.focus(); // return focus to the trigger
+  }, []);
+
+  // Lock the page scroll while the menu is open (with scrollbar-width
+  // compensation, so the page doesn't jump) — same helper as the login modal.
+  useEffect(() => {
+    if (!menuOpen) return;
+    lockBodyScroll();
+    return () => unlockBodyScroll();
+  }, [menuOpen]);
+
+  // Move focus into the panel when it opens.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const t = window.setTimeout(() => {
+      panelRef.current?.querySelector<HTMLElement>("a, button")?.focus();
+    }, 60);
+    return () => window.clearTimeout(t);
+  }, [menuOpen]);
+
+  // Escape closes; Tab is trapped within the open panel.
+  const onMenuKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        closeMenu();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const list = Array.from(
+        panelRef.current?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled])',
+        ) ?? [],
+      ).filter((el) => el.offsetParent !== null);
+      if (list.length === 0) return;
+      const first = list[0];
+      const last = list[list.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    },
+    [closeMenu],
+  );
 
   // Section nav. When NOT on home, let <Link href="/#id"> navigate home — the
   // HashScrollHandler scrolls after mount. When ALREADY on home, intercept and
@@ -258,7 +322,7 @@ export function Header() {
       <div className="mx-auto flex h-[78px] w-full max-w-[1280px] items-center justify-between px-8 max-[720px]:px-5">
         <Logo />
 
-        <nav className="hidden gap-8 text-sm font-medium text-navy-700 md:flex">
+        <nav className="hidden gap-8 text-sm font-medium text-navy-700 lg:flex">
           {NAV_LINKS.map((link) => (
             <Link
               key={link.href}
@@ -314,76 +378,119 @@ export function Header() {
               Увійти
             </button>
           )}
-          <Link
-            href="/booking"
-            aria-current={onBooking ? "page" : undefined}
-            className={cn(
-              btnBase,
-              btnMint,
-              "hidden sm:inline-flex",
-              onBooking && "ring-2 ring-mint-600/50 ring-offset-2 ring-offset-white",
-            )}
-          >
-            Записатися
-            <IcoArrow size={16} />
-          </Link>
-          <button
-            type="button"
-            aria-label="Меню"
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((v) => !v)}
-            className="grid h-10 w-10 place-items-center rounded-full text-navy-900 transition-colors hover:bg-cream md:hidden"
-          >
-            <IcoMenu size={22} />
-          </button>
-        </div>
-      </div>
-
-      {/* Mobile dropdown */}
-      {menuOpen && (
-        <div className="border-t border-[color:var(--line)] bg-white/95 px-5 py-4 backdrop-blur-[14px] md:hidden">
-          <nav className="flex flex-col gap-1">
-            {NAV_LINKS.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                onClick={(e) => {
-                  setMenuOpen(false);
-                  handleSectionNav(e, link.href);
-                }}
-                className="rounded-md px-2 py-2.5 text-sm font-medium text-navy-700 hover:bg-cream"
-              >
-                {link.label}
-              </Link>
-            ))}
-            <Link
-              href="/shop"
-              aria-current={onShop ? "page" : undefined}
-              onClick={() => setMenuOpen(false)}
-              className={cn(
-                "rounded-md px-2 py-2.5 text-sm font-medium hover:bg-cream",
-                onShop ? "bg-cream text-navy-900" : "text-navy-700",
-              )}
-            >
-              Магазин
-            </Link>
+          {/* Wrapper (not the Link) controls visibility: btnBase sets
+              `inline-flex`, which would beat a `hidden` on the same element, so
+              the hide lives on this plain span. Shown ≥lg; on mobile it moves
+              into the burger menu below. */}
+          <span className="hidden lg:inline-flex">
             <Link
               href="/booking"
               aria-current={onBooking ? "page" : undefined}
-              onClick={() => setMenuOpen(false)}
               className={cn(
                 btnBase,
                 btnMint,
-                "mt-2 justify-center sm:hidden",
                 onBooking && "ring-2 ring-mint-600/50 ring-offset-2 ring-offset-white",
               )}
             >
               Записатися
               <IcoArrow size={16} />
             </Link>
-          </nav>
+          </span>
+          <button
+            ref={burgerRef}
+            type="button"
+            aria-label="Меню"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            aria-controls="mobile-menu"
+            onClick={() => setMenuOpen((v) => !v)}
+            className="grid h-10 w-10 place-items-center rounded-full text-navy-900 transition-colors hover:bg-cream lg:hidden"
+          >
+            <IcoMenu size={22} />
+          </button>
         </div>
-      )}
+      </div>
+
+      {/* Mobile menu — OVERLAY (portaled to <body> so it escapes the header's
+          backdrop-filter; fixed, out of flow → it never pushes page content).
+          Backdrop sits below the 78px bar so the burger stays clickable to
+          toggle-close; the bar itself stays visible above the dim. */}
+      {mounted &&
+        createPortal(
+          <div
+            role="presentation"
+            onKeyDown={onMenuKeyDown}
+            className={cn(
+              "pointer-events-none fixed inset-0 z-[60] transition-[opacity,visibility] duration-200 ease-smooth lg:hidden",
+              menuOpen ? "visible opacity-100" : "invisible opacity-0",
+            )}
+          >
+            {/* Backdrop (below the header bar) — click closes. */}
+            <button
+              type="button"
+              aria-hidden="true"
+              tabIndex={-1}
+              onClick={closeMenu}
+              className="pointer-events-auto absolute inset-x-0 bottom-0 top-[78px] cursor-default bg-[rgba(10,22,40,0.45)]"
+            />
+            {/* Panel: drops under the bar, full width, scrolls if tall. */}
+            <div
+              ref={panelRef}
+              id="mobile-menu"
+              role="menu"
+              aria-label="Навігація"
+              className={cn(
+                "pointer-events-auto absolute inset-x-0 top-[78px] max-h-[calc(100dvh-78px)] overflow-y-auto border-t border-[color:var(--line)] bg-white/95 px-5 py-4 shadow-s2 backdrop-blur-[14px] transition-transform duration-200 ease-smooth",
+                menuOpen ? "translate-y-0" : "-translate-y-3",
+              )}
+            >
+              <nav className="flex flex-col gap-1">
+                {NAV_LINKS.map((link) => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    role="menuitem"
+                    onClick={(e) => {
+                      setMenuOpen(false);
+                      handleSectionNav(e, link.href);
+                    }}
+                    className="rounded-md px-2 py-2.5 text-sm font-medium text-navy-700 hover:bg-cream"
+                  >
+                    {link.label}
+                  </Link>
+                ))}
+                <Link
+                  href="/shop"
+                  role="menuitem"
+                  aria-current={onShop ? "page" : undefined}
+                  onClick={() => setMenuOpen(false)}
+                  className={cn(
+                    "rounded-md px-2 py-2.5 text-sm font-medium hover:bg-cream",
+                    onShop ? "bg-cream text-navy-900" : "text-navy-700",
+                  )}
+                >
+                  Магазин
+                </Link>
+                <Link
+                  href="/booking"
+                  role="menuitem"
+                  aria-current={onBooking ? "page" : undefined}
+                  onClick={() => setMenuOpen(false)}
+                  className={cn(
+                    btnBase,
+                    btnMint,
+                    "mt-2 justify-center",
+                    onBooking && "ring-2 ring-mint-600/50 ring-offset-2 ring-offset-white",
+                  )}
+                >
+                  Записатися
+                  <IcoArrow size={16} />
+                </Link>
+              </nav>
+            </div>
+          </div>,
+          document.body,
+        )}
     </header>
   );
 }
