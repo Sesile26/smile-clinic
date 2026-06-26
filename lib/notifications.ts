@@ -176,14 +176,11 @@ export async function notifyManagersOfCancellation(input: {
 }
 
 /**
- * Mirror of the cancellation notice for NEW bookings — but ONLY for visits
- * booked for TODAY (clinic timezone). Today's bookings need an immediate
- * reaction (confirm/reject before the patient shows up); future bookings just
- * surface in the pending list, so they get no instant push.
- *
- * Recipients: the slot's owning DOCTOR (if their account is linked via
- * Doctor.userId) AND every STAFF/ADMIN, DEDUPED — a doctor who is also
- * staff/admin gets a single notification, not two.
+ * NEW-booking notice for EVERY new booking (today or future). The owning DOCTOR
+ * (if their account is linked via Doctor.userId) AND every STAFF/ADMIN get it,
+ * DEDUPED — a doctor who is also staff/admin gets a single notification. Today's
+ * bookings are worded "сьогодні" (and need an immediate confirm/reject); future
+ * ones carry the date.
  *
  * Call AFTER the booking transaction commits (so a slot-race / limit / rate
  * limit failure never produces a phantom notification). Best-effort.
@@ -195,10 +192,8 @@ export async function notifyManagersOfNewBooking(input: {
   /** Manual staff bookings are already confirmed — adjust the wording. */
   confirmed?: boolean;
 }): Promise<void> {
-  // Future bookings: no instant push (they appear in the pending list). Check
-  // first, before any queries, so we do zero work off the hot path.
+  // "Today" only tweaks the wording now; every booking is notified.
   const isToday = dayKeyFmt.format(input.date) === dayKeyFmt.format(new Date());
-  if (!isToday) return;
 
   const [doctor, staff, patient] = await Promise.all([
     prisma.doctor.findUnique({
@@ -221,9 +216,12 @@ export async function notifyManagersOfNewBooking(input: {
   if (recipients.size === 0) return;
 
   const patientName = patient?.name ?? "Пацієнт";
-  const title = "Новий запис на сьогодні";
+  const when = isToday
+    ? `сьогодні, ${timeFmt.format(input.date)}`
+    : `${dateFmt.format(input.date)}, ${timeFmt.format(input.date)}`;
+  const title = isToday ? "Новий запис на сьогодні" : "Новий запис";
   const suffix = input.confirmed ? "(підтверджено)" : "(потребує підтвердження)";
-  const body = `Новий запис на сьогодні, ${timeFmt.format(input.date)} — ${patientName} ${suffix}.`;
+  const body = `Новий запис на ${when} — ${patientName} ${suffix}.`;
 
   await Promise.all(
     [...recipients].map((userId) =>
