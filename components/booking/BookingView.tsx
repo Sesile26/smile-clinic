@@ -5,7 +5,7 @@ import { useAppointments } from "@/hooks/useAppointments";
 import { useDoctors, useNextFreeSlot, useSlots } from "@/hooks/useBooking";
 import { useDelayedFlag } from "@/hooks/useDelayedFlag";
 import { createBooking, BookingApiError } from "@/lib/booking-client";
-import { utcToLocalCell } from "@/lib/booking-time";
+import { utcToLocalCell, SLOT_DURATION_MIN } from "@/lib/booking-time";
 import type { ApiSlot } from "@/lib/booking-types";
 import {
   addDays,
@@ -18,7 +18,7 @@ import {
   freeCountByDay,
   indexSlots,
   isCellPast,
-  patientTimes,
+  manageTimes,
   startOfMonth,
   startOfWeek,
   type Doctor,
@@ -150,7 +150,10 @@ export function BookingView({ today, online }: BookingViewProps) {
   );
 
   const maps = useMemo(() => indexSlots(slots), [slots]);
-  const times = useMemo(() => patientTimes(slots), [slots]);
+  // Full working-window grid (08:00–22:00) — the SAME grid staff/doctor see;
+  // free slots are bookable, the rest render greyed. (Previously patientTimes
+  // collapsed the grid to only hours that had a free slot.)
+  const times = useMemo(() => manageTimes(SLOT_DURATION_MIN), []);
   const week = useMemo(
     () => assembleWeek(weekAnchor, times, maps.statusByCell, today),
     [weekAnchor, times, maps, today],
@@ -303,14 +306,12 @@ export function BookingView({ today, online }: BookingViewProps) {
             selectedDay={selectedDay}
             onSelectDay={setSelectedDay}
             onActivate={(dayIndex, time) => openConfirm(dayIndex, time)}
+            // Always render the full grid (like the staff/doctor view) — no
+            // "empty" collapse when the week has no free slots; unavailable
+            // cells just show greyed. The NextFreeHint above still guides the
+            // patient to the nearest opening.
             bodyState={
-              slotsState === "error"
-                ? "error"
-                : pending
-                  ? "loading"
-                  : hasFreeThisWeek
-                    ? "ready"
-                    : "empty"
+              slotsState === "error" ? "error" : pending ? "loading" : "ready"
             }
             cellsVisible={showSkeletonCells}
             emptyTitle="Немає вільних місць на цей тиждень"

@@ -23,8 +23,8 @@ export const SLOT_DURATION_MIN: SlotDuration = 60;
 export const SLOT_DURATIONS: SlotDuration[] = [60];
 
 /** Clinic working window, in local minutes-from-midnight. */
-export const WORK_START_MIN = 9 * 60; // 09:00
-export const WORK_END_MIN = 21 * 60; // 21:00 (slots 09:00–20:00, last ends 21:00)
+export const WORK_START_MIN = 8 * 60; // 08:00
+export const WORK_END_MIN = 22 * 60; // 22:00 (slots 08:00–21:00, last ends 22:00)
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");

@@ -8,7 +8,13 @@ import { cn } from "@/lib/cn";
  * purpose: the patient view also needs a "selected" look that the data layer
  * doesn't know about.
  */
-export type SlotVariant = "off" | "working" | "booked" | "free" | "selected";
+export type SlotVariant =
+  | "off"
+  | "working"
+  | "booked"
+  | "free"
+  | "selected"
+  | "unavailable";
 
 interface SlotButtonProps {
   time: string;
@@ -43,6 +49,10 @@ const VARIANT_CLASS: Record<SlotVariant, string> = {
   free: "border-mint/60 bg-white text-navy-900 hover:border-mint hover:bg-mint-100",
   // patient view — the slot currently chosen in the confirm flow
   selected: "border-mint bg-mint text-navy-900 shadow-s1",
+  // patient view — a time with no free slot (or booked): greyed, inert, does
+  // NOT invite a click (unlike the manage "off"). Shown so the patient sees the
+  // same full grid the staff/doctor see.
+  unavailable: "border-[color:var(--line)] bg-cream/40 text-navy-400/60",
 };
 
 /**
@@ -77,13 +87,15 @@ export const SlotButton = forwardRef<HTMLButtonElement, SlotButtonProps>(
         ? `${time} — зайнято, є запис`
         : variant === "working"
           ? `${time} — працюю`
-          : `${time} — вільно`;
+          : variant === "unavailable"
+            ? `${time} — недоступно`
+            : `${time} — вільно`;
 
     return (
       <button
         ref={ref}
         type="button"
-        disabled={disabled || isPast || (isBooked && !actionable)}
+        disabled={disabled || isPast || variant === "unavailable" || (isBooked && !actionable)}
         tabIndex={tabIndex}
         onClick={onClick}
         onKeyDown={onKeyDown}

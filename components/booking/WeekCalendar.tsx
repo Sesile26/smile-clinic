@@ -70,7 +70,13 @@ function isFocusable(
 
 function variantFor(status: SlotStatus, mode: Mode): SlotVariant {
   if (mode === "manage") return status; // off | working | booked
-  return "free"; // book mode renders only free slots as "free"
+  // Book mode shows the SAME full grid as manage: a free slot is grabbable;
+  // booked / no-slot render inert & greyed so the patient sees every time.
+  return status === "working"
+    ? "free"
+    : status === "booked"
+      ? "booked"
+      : "unavailable";
 }
 
 export function WeekCalendar({
@@ -279,11 +285,9 @@ export function WeekCalendar({
                   // manage popup is enabled and it isn't past.
                   const bookedClickable =
                     slot.status === "booked" && bookedActionable && !slot.past;
-                  // Manage: show every cell (past ones greyed). Book: only a
-                  // FREE, non-past slot is shown — past free slots are hidden.
-                  const show =
-                    mode === "manage" ||
-                    (slot.status === "working" && !slot.past);
+                  // Both modes now show every cell (past/unavailable greyed), so
+                  // the patient grid matches the staff/doctor grid 1-to-1.
+                  const show = true;
                   const isHl =
                     !!highlight &&
                     time === highlight.time &&
@@ -428,10 +432,9 @@ function MobileDayList({
 }) {
   if (!day) return null;
 
-  const visible =
-    mode === "manage"
-      ? day.slots // past cells shown greyed/disabled
-      : day.slots.filter((s) => s.status === "working" && !s.past); // hide past
+  // Both modes show every cell (past/unavailable greyed) — the patient grid
+  // matches the staff/doctor grid 1-to-1.
+  const visible = day.slots;
 
   if (visible.length === 0) {
     return (
