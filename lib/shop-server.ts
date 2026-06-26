@@ -31,6 +31,7 @@ export const PRODUCT_SELECT = {
   description: true,
   price: true,
   imageUrl: true,
+  images: true,
   categoryId: true,
   category: { select: { name: true } },
   stock: true,
@@ -44,6 +45,7 @@ type ProductRow = {
   description: string | null;
   price: Prisma.Decimal;
   imageUrl: string | null;
+  images: string[];
   categoryId: string | null;
   category: { name: string } | null;
   stock: number;
@@ -68,6 +70,7 @@ export function toApiProduct(
     description: p.description,
     price: p.price.toNumber(),
     imageUrl: p.imageUrl,
+    images: p.images,
     categoryId: p.categoryId,
     categoryName: p.category?.name ?? null,
     inStock: p.stock > 0,

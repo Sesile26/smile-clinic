@@ -9,6 +9,8 @@ import {
   ShopApiError,
 } from "@/lib/shop-client";
 import { UNCATEGORIZED_VALUE } from "@/lib/shop-types";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { db } from "@/lib/db";
 
 export interface ShopCategory {
   id: string;
@@ -50,13 +52,27 @@ const toMsg = (err: unknown, fallback: string) =>
  * catalog (a rename/delete changes products' category name / categoryId).
  */
 export function useShopCategories(onMutated?: () => void): UseShopCategories {
+  const { isOnline: online } = useOnlineStatus();
   const [categories, setCategories] = useState<ShopCategory[]>([]);
   const [state, setState] = useState<CatLoadState>("loading");
   const [reloadKey, setReloadKey] = useState(0);
 
-  // Fetch the list. No synchronous setState in the effect body — updates land
-  // in the async callbacks.
+  // Online → fetch from the API (the /shop full mirror writes db.categories for
+  // offline; this hook doesn't double-write). Offline → read that mirror.
   useEffect(() => {
+    if (!online) {
+      let cancelled = false;
+      db.categories.toArray().then((rows) => {
+        if (cancelled) return;
+        setCategories(
+          rows.map((c) => ({ id: c.id, name: c.name, slug: c.slug, count: c.productCount })),
+        );
+        setState("ready");
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
     const ac = new AbortController();
     getCategories(ac.signal)
       .then((rows) => {
@@ -70,7 +86,7 @@ export function useShopCategories(onMutated?: () => void): UseShopCategories {
         setState("error");
       });
     return () => ac.abort();
-  }, [reloadKey]);
+  }, [reloadKey, online]);
 
   const reload = useCallback(() => {
     setState("loading");

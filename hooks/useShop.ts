@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, type LocalProduct } from "@/lib/db";
-import { getProducts, getProductsPage } from "@/lib/shop-client";
+import { getProducts, getProductsPage, getCategories } from "@/lib/shop-client";
 import type { ApiProduct } from "@/lib/shop-types";
 import { UNCATEGORIZED_VALUE } from "@/lib/shop-types";
 import { slugify } from "@/lib/slug";
@@ -40,11 +40,60 @@ function localToApi(p: LocalProduct): ApiProduct {
     description: p.description,
     price: p.price,
     imageUrl: p.imageUrl,
+    images: p.images ?? [],
     categoryId: p.categoryId,
     categoryName: p.categoryName,
     inStock: p.inStock,
     isActive: p.isActive,
+    isFeatured: p.isFeatured,
   };
+}
+
+/** Map a wire product to its offline mirror row (text only). */
+function apiToLocal(p: ApiProduct): LocalProduct {
+  return {
+    id: p.id,
+    name: p.name,
+    description: p.description,
+    price: p.price,
+    imageUrl: p.imageUrl,
+    images: p.images ?? [],
+    categoryId: p.categoryId,
+    categoryName: p.categoryName,
+    inStock: p.inStock,
+    isActive: p.isActive,
+    isFeatured: p.isFeatured ?? false,
+    lastMirroredAt: Date.now(),
+  };
+}
+
+/**
+ * Mirror the FULL catalog text (all products) into Dexie, plus categories.
+ * Called on every online /shop load so offline has the complete catalog ahead —
+ * text is cheap. Images are NOT prefetched here; the Service Worker caches only
+ * the photos the user actually views online. clear+bulkPut so server-removed
+ * products don't linger offline.
+ */
+export async function mirrorCatalog(): Promise<void> {
+  const [products, categories] = await Promise.all([
+    getProducts(),
+    getCategories(),
+  ]);
+  const now = Date.now();
+  await db.transaction("rw", db.products, db.categories, async () => {
+    await db.products.clear();
+    await db.products.bulkPut(products.map(apiToLocal));
+    await db.categories.clear();
+    await db.categories.bulkPut(
+      categories.map((c) => ({
+        id: c.id,
+        name: c.name,
+        slug: c.slug,
+        productCount: c.productCount,
+        lastMirroredAt: now,
+      })),
+    );
+  });
 }
 
 export interface UseProductsResult {
@@ -87,24 +136,10 @@ export function useProducts(online: boolean): UseProductsResult {
       .then((products) => {
         setServer({ products, state: "ready" });
         // Refresh the offline mirror (clear stale + write the current set).
-        // Persist only the availability boolean — never the exact stock count,
-        // even for a staff session (defence in depth on a shared device).
-        const now = Date.now();
-        const rows: LocalProduct[] = products.map((p) => ({
-          id: p.id,
-          name: p.name,
-          description: p.description,
-          price: p.price,
-          imageUrl: p.imageUrl,
-          categoryId: p.categoryId,
-          categoryName: p.categoryName,
-          inStock: p.inStock,
-          isActive: p.isActive,
-          lastMirroredAt: now,
-        }));
+        // Only the availability boolean is persisted — never the exact stock.
         void db.transaction("rw", db.products, async () => {
           await db.products.clear();
-          await db.products.bulkPut(rows);
+          await db.products.bulkPut(products.map(apiToLocal));
         });
       })
       .catch((err) => {
@@ -149,25 +184,6 @@ let feedSnapshot: FeedSnapshot | null = null;
 /** Save the scroll position into the snapshot (called when leaving /shop). */
 export function saveFeedScroll(y: number): void {
   if (feedSnapshot) feedSnapshot.scrollY = y;
-}
-
-/** Merge loaded pages into the Dexie mirror (no clear) so offline /shop shows
- *  what was browsed. The exact stock count is never persisted. */
-function mirrorMerge(products: ApiProduct[]): void {
-  const now = Date.now();
-  const rows: LocalProduct[] = products.map((p) => ({
-    id: p.id,
-    name: p.name,
-    description: p.description,
-    price: p.price,
-    imageUrl: p.imageUrl,
-    categoryId: p.categoryId,
-    categoryName: p.categoryName,
-    inStock: p.inStock,
-    isActive: p.isActive,
-    lastMirroredAt: now,
-  }));
-  void db.products.bulkPut(rows).catch(() => {});
 }
 
 /** Offline mirror read with the same filters + in-stock-first ordering. */
@@ -283,7 +299,6 @@ export function useProductFeed({
         setHasMore(page.hasMore);
         setTotal(page.total);
         setLoadedKey(requestKey);
-        mirrorMerge(page.items);
       })
       .catch((err) => {
         if (ac.signal.aborted || err?.name === "AbortError") return;
@@ -291,6 +306,14 @@ export function useProductFeed({
       });
     return () => ac.abort();
   }, [requestKey, online, q, category, loadedKey]);
+
+  // Mirror the FULL catalog text (all products + categories) into Dexie on each
+  // online load, so offline /shop has everything ahead. Best-effort; images are
+  // NOT prefetched — the SW caches only photos actually viewed online.
+  useEffect(() => {
+    if (!online) return;
+    void mirrorCatalog().catch(() => {});
+  }, [online]);
 
   const ready = loadedKey === requestKey && errorKey !== requestKey;
 
@@ -306,7 +329,6 @@ export function useProductFeed({
         setCursor(page.nextCursor);
         setHasMore(page.hasMore);
         setTotal(page.total);
-        mirrorMerge(page.items);
       })
       .catch(() => {
         /* keep current list; the sentinel can retry on next intersection */
@@ -325,7 +347,7 @@ export function useProductFeed({
     setItems((prev) =>
       prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)),
     );
-    mirrorMerge([updated]);
+    // Offline mirror refreshes on the next online load (mirrorCatalog).
   }, []);
 
   // Keep the module snapshot current for back-navigation restore.

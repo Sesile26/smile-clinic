@@ -13,6 +13,10 @@ export interface ApiProduct {
   /** UAH, for display. Server computes order totals from the DB, not this. */
   price: number;
   imageUrl: string | null;
+  /** Ordered gallery URLs. Present on the full-list mirror (offline shop +
+   *  offline detail gallery); the paginated storefront feed omits it (cards
+   *  only need imageUrl). */
+  images?: string[];
   /** FK to Category — the catalog filter matches on this id (null = "Без
    *  категорії"). The denormalized name below is for display only. */
   categoryId: string | null;

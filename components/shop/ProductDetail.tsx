@@ -49,7 +49,7 @@ function mirrorToDetail(id: string): Promise<ApiProductDetail | null> {
           isActive: m.isActive,
           longDescription: null,
           categorySlug: m.categoryName ? slugify(m.categoryName) : null,
-          images: m.imageUrl ? [m.imageUrl] : [],
+          images: m.images?.length ? m.images : m.imageUrl ? [m.imageUrl] : [],
           similar: [],
         }
       : null,
@@ -160,7 +160,9 @@ function ProductView({
   const [erroredImgs, setErroredImgs] = useState<Set<number>>(new Set());
   const [added, setAdded] = useState(false);
 
-  const mainBroken = gallery.length === 0 || erroredImgs.has(imgIdx) || !online;
+  // Offline-cached photos (viewed online earlier) still load from the SW cache,
+  // so don't force the fallback offline — let onError catch the truly-uncached.
+  const mainBroken = gallery.length === 0 || erroredImgs.has(imgIdx);
   const markErrored = (i: number) => setErroredImgs((s) => new Set(s).add(i));
 
   const handleAdd = () => {
@@ -243,8 +245,13 @@ function ProductView({
             ) : (
               <>
                 <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[radial-gradient(520px_280px_at_80%_0%,rgba(0,201,167,0.28),transparent_60%)]" />
-                <div className={cn("absolute inset-0 grid place-items-center text-mint", outOfStock && "opacity-40")}>
+                <div className={cn("absolute inset-0 grid place-items-center gap-2 text-mint", outOfStock && "opacity-40")}>
                   <CategoryGlyph category={product.categoryName} size={96} />
+                  {!online && gallery.length > 0 && (
+                    <span className="px-4 text-center text-xs text-white/70">
+                      Зображення недоступне офлайн
+                    </span>
+                  )}
                 </div>
               </>
             )}
@@ -260,7 +267,7 @@ function ProductView({
             <ul className="mt-3 flex gap-2.5" role="list" aria-label="Фото товару">
               {gallery.map((src, i) => {
                 const active = i === imgIdx;
-                const broken = erroredImgs.has(i) || !online;
+                const broken = erroredImgs.has(i);
                 return (
                   <li key={`${src}-${i}`}>
                     <button

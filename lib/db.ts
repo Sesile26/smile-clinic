@@ -82,12 +82,25 @@ export interface LocalProduct {
   description: string | null;
   price: number;
   imageUrl: string | null;
+  /** Ordered gallery URLs (text — cheap to mirror). The IMAGES themselves are
+   *  cached on-demand by the Service Worker, not here. */
+  images: string[];
   categoryId: string | null;
   categoryName: string | null;
   /** Only the availability boolean is mirrored — the exact stock count is
    *  staff-only and never written to the (patient-readable) offline store. */
   inStock: boolean;
   isActive: boolean;
+  isFeatured: boolean;
+  lastMirroredAt: number;
+}
+
+/** Read-only mirror of a category for the offline storefront filter. */
+export interface LocalCategory {
+  id: string;
+  name: string;
+  slug: string;
+  productCount: number;
   lastMirroredAt: number;
 }
 
@@ -124,6 +137,7 @@ export class ClinicDatabase extends Dexie {
   doctors!: Table<LocalDoctor, string>;
   slots!: Table<LocalSlot, string>;
   products!: Table<LocalProduct, string>;
+  categories!: Table<LocalCategory, string>;
   profile!: Table<LocalProfile, string>;
   cartItems!: Table<LocalCartItem, string>;
 
@@ -217,6 +231,23 @@ export class ClinicDatabase extends Dexie {
       profile: "userId",
       cartItems: "productId, addedAt",
     });
+
+    // v8: full offline catalog — product mirror gains `images` + `isFeatured`,
+    // and a `categories` table for the offline filter. Clear products so old
+    // rows (missing the new fields) don't linger; categories starts empty and
+    // fills on the next online catalog load.
+    this.version(8)
+      .stores({
+        appointments: "id, date, status, doctorId, patientId",
+        patients: "id, name",
+        doctors: "id",
+        slots: "id, doctorId, status, startsAt",
+        products: "id, isActive, categoryId",
+        categories: "id, slug",
+        profile: "userId",
+        cartItems: "productId, addedAt",
+      })
+      .upgrade((tx) => tx.table("products").clear().then(() => undefined));
   }
 }
 

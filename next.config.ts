@@ -72,6 +72,22 @@ const runtimeCaching: RuntimeCaching[] = [
       expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 24 * 30 },
     },
   },
+  // ─── ALLOW: Product photos (cross-origin) — cached ON DEMAND, not prefetched ─
+  // Only photos the user actually views online land here; offline they serve
+  // from cache, and uncached ones fall back to the in-app placeholder. Both
+  // domains share one cache (single ExpirationPlugin budget). CacheFirst:
+  // Blob URLs are immutable (random suffix per upload), placehold.co is static.
+  // cacheableResponse [0,200] so opaque cross-origin responses are storable.
+  {
+    urlPattern:
+      /^https:\/\/(?:[a-z0-9-]+\.public\.blob\.vercel-storage\.com|placehold\.co)\/.*/i,
+    handler: "CacheFirst",
+    options: {
+      cacheName: "product-images",
+      expiration: { maxEntries: 80, maxAgeSeconds: 60 * 60 * 24 * 30 },
+      cacheableResponse: { statuses: [0, 200] },
+    },
+  },
   // ─── ALLOW: Other same-origin images ─────────────────────────────────────
   {
     urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp|avif)$/i,
