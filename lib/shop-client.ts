@@ -99,7 +99,10 @@ export interface ProductInput {
   stock: number;
   /** Existing category id, or null for "Без категорії". */
   categoryId: string | null;
+  /** Cover photo (catalog card + first on the product page). One of `images`. */
   imageUrl?: string;
+  /** Ordered gallery (variant A): the saved order IS the display order. */
+  images?: string[];
 }
 
 // ─── Categories ──────────────────────────────────────────────────────────────

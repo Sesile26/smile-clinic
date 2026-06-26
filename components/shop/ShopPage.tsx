@@ -16,6 +16,7 @@ import {
 import { UNCATEGORIZED_VALUE } from "@/lib/shop-types";
 import { useCart } from "./CartContext";
 import { ProductCard } from "./ProductCard";
+import { EditProductButton } from "./EditProductButton";
 import { useShopCategories, UNCATEGORIZED_LABEL } from "./useShopCategories";
 import {
   EmptyState,
@@ -227,6 +228,15 @@ function ShopInner() {
                 inCartQty={qtyById.get(p.id) ?? 0}
                 onAdd={() => add(p)}
                 purchasable={!canManage}
+                editControl={
+                  canManage ? (
+                    <EditProductButton
+                      variant="card"
+                      product={p}
+                      onSaved={feed.updateItem}
+                    />
+                  ) : undefined
+                }
               />
             ))}
             {feed.loadingMore && <SkeletonCards count={3} />}

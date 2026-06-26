@@ -22,6 +22,25 @@ import type { ApiProduct, ApiProductDetail } from "@/lib/shop-types";
  *           intact and hides the item from the catalog.
  */
 
+/** Max gallery photos per product (variant A) — mirrors POST /api/products. */
+const MAX_IMAGES = 8;
+
+/** Validate the gallery payload: http(s) URL strings, trimmed, de-duped (order
+ *  preserved), capped at MAX_IMAGES. Returns the cleaned array, or null when the
+ *  shape is invalid. */
+function parseImages(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const out: string[] = [];
+  for (const v of value) {
+    if (typeof v !== "string") return null;
+    const s = v.trim();
+    if (!s) continue;
+    if (!/^https?:\/\//i.test(s) || s.length > 2048) return null;
+    if (!out.includes(s)) out.push(s);
+  }
+  return out.slice(0, MAX_IMAGES);
+}
+
 // Detail select = the card columns + the page-only rich fields (+ category slug).
 const DETAIL_SELECT = {
   ...PRODUCT_SELECT,
@@ -138,6 +157,13 @@ export async function PATCH(
       typeof b.imageUrl === "string" && b.imageUrl.trim()
         ? b.imageUrl.trim()
         : null;
+  }
+  if (b.images !== undefined) {
+    const imgs = parseImages(b.images);
+    if (imgs === null) {
+      return shopError(400, "validation", "Невалідний список зображень");
+    }
+    data.images = { set: imgs };
   }
   if (typeof b.isActive === "boolean") {
     data.isActive = b.isActive;

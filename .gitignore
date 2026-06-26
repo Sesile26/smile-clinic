@@ -54,3 +54,6 @@ yarn-error.log*
 next-env.d.ts
 
 /lib/generated/prisma
+
+# graphify knowledge-graph artifacts
+graphify-out/

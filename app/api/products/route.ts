@@ -40,6 +40,28 @@ function escapeLike(s: string): string {
   return s.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
+/** Max gallery photos per product (variant A). */
+const MAX_IMAGES = 8;
+
+/**
+ * Validate the gallery payload: an array of http(s) URL strings, trimmed,
+ * de-duped (order preserved), capped at MAX_IMAGES. Returns the cleaned array,
+ * or `null` when the shape is invalid (→ 400). `undefined` input → [].
+ */
+function parseImages(value: unknown): string[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return null;
+  const out: string[] = [];
+  for (const v of value) {
+    if (typeof v !== "string") return null;
+    const s = v.trim();
+    if (!s) continue;
+    if (!/^https?:\/\//i.test(s) || s.length > 2048) return null;
+    if (!out.includes(s)) out.push(s);
+  }
+  return out.slice(0, MAX_IMAGES);
+}
+
 // Cursor = the last row's sort key (rank, createdAt, id), base64-encoded. `rank`
 // is the primary sort group: 2 = featured & in-stock, 1 = in-stock, 0 =
 // out-of-stock (featured doesn't lift a 0-stock product — it can't be bought).
@@ -254,6 +276,7 @@ export async function POST(request: Request) {
     stock,
     categoryId,
     imageUrl,
+    images,
   } = (body ?? {}) as Record<string, unknown>;
 
   if (typeof name !== "string" || name.trim().length < 2) {
@@ -274,6 +297,10 @@ export async function POST(request: Request) {
   ) {
     return shopError(400, "validation", "Невалідна категорія");
   }
+  const imagesArr = parseImages(images);
+  if (imagesArr === null) {
+    return shopError(400, "validation", "Невалідний список зображень");
+  }
 
   try {
     const created = await prisma.product.create({
@@ -290,6 +317,7 @@ export async function POST(request: Request) {
           typeof imageUrl === "string" && imageUrl.trim()
             ? imageUrl.trim()
             : null,
+        images: imagesArr,
       },
       select: PRODUCT_SELECT,
     });

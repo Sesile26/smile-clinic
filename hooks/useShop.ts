@@ -207,6 +207,9 @@ export interface UseProductFeed {
   loadingMore: boolean;
   loadMore: () => void;
   reload: () => void;
+  /** Replace one already-loaded product in place (after a manager edit) without
+   *  refetching the whole feed — keeps scroll position and loaded pages. */
+  updateItem: (updated: ApiProduct) => void;
   /** Key of the active filters — ShopPage scrolls to top when it changes. */
   filterKey: string;
   /** Scroll Y to restore on mount (back navigation), or null. Consume once. */
@@ -316,6 +319,15 @@ export function useProductFeed({
     setReloadKey((k) => k + 1);
   }, []);
 
+  // Patch a single loaded card in place (manager edit). The snapshot effect
+  // below picks up the new `items`; also refresh the offline mirror.
+  const updateItem = useCallback((updated: ApiProduct) => {
+    setItems((prev) =>
+      prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)),
+    );
+    mirrorMerge([updated]);
+  }, []);
+
   // Keep the module snapshot current for back-navigation restore.
   useEffect(() => {
     feedSnapshot = {
@@ -341,6 +353,7 @@ export function useProductFeed({
     loadingMore,
     loadMore,
     reload,
+    updateItem,
     filterKey: `${q}|${category}`,
     restoredScrollY,
   };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/cn";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
@@ -13,6 +13,7 @@ import { db } from "@/lib/db";
 import type { ApiProduct, ApiProductDetail } from "@/lib/shop-types";
 import { useCart } from "./CartContext";
 import { ProductCard } from "./ProductCard";
+import { EditProductButton } from "./EditProductButton";
 import { OfflineNotice } from "./StatePanels";
 import { formatUAH } from "./data";
 
@@ -64,6 +65,9 @@ export function ProductDetail({ id }: { id: string }) {
   // Result tagged with the id it was fetched for → loading is DERIVED
   // (data.id !== id), so there's no synchronous setState in the effect.
   const [data, setData] = useState<{ id: string; product: ApiProductDetail | null } | null>(null);
+  // Bumped after a manager edit → refetch so the page shows fresh data.
+  const [reloadKey, setReloadKey] = useState(0);
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
   useEffect(() => {
     let active = true;
@@ -83,7 +87,7 @@ export function ProductDetail({ id }: { id: string }) {
     return () => {
       active = false;
     };
-  }, [id, online]);
+  }, [id, online, reloadKey]);
 
   const qtyOf = useMemo(() => {
     const m = new Map<string, number>();
@@ -99,6 +103,8 @@ export function ProductDetail({ id }: { id: string }) {
       product={data.product}
       online={online}
       purchasable={!canManage}
+      editable={canManage}
+      onEdited={reload}
       add={add}
       setQty={setQty}
       qtyOf={qtyOf}
@@ -110,6 +116,8 @@ function ProductView({
   product,
   online,
   purchasable,
+  editable,
+  onEdited,
   add,
   setQty,
   qtyOf,
@@ -117,6 +125,10 @@ function ProductView({
   product: ApiProductDetail;
   online: boolean;
   purchasable: boolean;
+  /** STAFF/ADMIN → show the "Редагувати" button. */
+  editable: boolean;
+  /** Called after a successful edit → parent refetches the detail. */
+  onEdited: () => void;
   add: (p: ApiProduct) => void;
   setQty: (id: string, qty: number) => void;
   qtyOf: (id: string) => number;
@@ -134,11 +146,14 @@ function ProductView({
     }
   };
 
-  const gallery = product.images.length > 0
-    ? product.images
-    : product.imageUrl
-      ? [product.imageUrl]
-      : [];
+  // `imageUrl` is the canonical single image (what uploads update and what the
+  // catalog card shows). Lead with it so a freshly uploaded photo appears as the
+  // main image here too; any extra gallery photos follow as thumbnails. Falls
+  // back to the gallery array (legacy/seed) when imageUrl is empty.
+  // NOTE: full multi-image management is a separate, future task.
+  const gallery = product.imageUrl
+    ? [product.imageUrl, ...product.images.filter((src) => src !== product.imageUrl)]
+    : product.images;
 
   const [qty, setLocalQty] = useState(1);
   const [imgIdx, setImgIdx] = useState(0);
@@ -282,6 +297,16 @@ function ProductView({
           <h1 className="mt-3 font-serif text-[30px] leading-tight tracking-[-0.01em] text-navy-900 sm:text-[36px]">
             {product.name}
           </h1>
+
+          {editable && (
+            <div className="mt-3">
+              <EditProductButton
+                variant="inline"
+                product={product}
+                onSaved={onEdited}
+              />
+            </div>
+          )}
 
           <div className="mt-3 flex flex-wrap items-center gap-4">
             <span className="text-2xl font-medium tabular-nums text-navy-900">{formatUAH(product.price)}</span>

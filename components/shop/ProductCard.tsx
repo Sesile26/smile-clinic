@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/cn";
 import { IcoChild, IcoShield, IcoSparkle, IcoTooth } from "@/components/icons";
@@ -40,6 +40,9 @@ interface ProductCardProps {
   /** false → no add-to-cart button (e.g. STAFF/ADMIN viewing the storefront —
    *  they don't buy; product management lives in /admin/products). Default true. */
   purchasable?: boolean;
+  /** Optional manager control (e.g. <EditProductButton>) overlaid on the image.
+   *  Raised above the stretched title link so it's clickable without navigating. */
+  editControl?: ReactNode;
 }
 
 export function ProductCard({
@@ -48,6 +51,7 @@ export function ProductCard({
   inCartQty,
   onAdd,
   purchasable = true,
+  editControl,
 }: ProductCardProps) {
   // Product photos may be arbitrary external URLs; plain <img> + onError
   // fallback avoids touching next.config remotePatterns.
@@ -112,6 +116,11 @@ export function ProductCard({
           <span className="absolute right-3 top-3 rounded-full bg-navy-900/90 px-2.5 py-1 text-[11px] font-medium text-white">
             Немає в наявності
           </span>
+        )}
+
+        {/* Manager edit control — raised above the title's stretched ::before. */}
+        {editControl && (
+          <div className="absolute bottom-3 right-3 z-[2]">{editControl}</div>
         )}
       </div>
 
