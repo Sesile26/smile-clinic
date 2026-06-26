@@ -14,8 +14,6 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 };
 
-const DISMISS_KEY = "pwa-install-dismissed";
-
 function isStandalone(): boolean {
   return (
     window.matchMedia("(display-mode: standalone)").matches ||
@@ -27,7 +25,8 @@ function isStandalone(): boolean {
 /**
  * Unobtrusive "Install app" banner. Android/desktop Chromium → fires the native
  * install prompt; iOS Safari → opens manual "Add to Home Screen" steps; already
- * installed (standalone) or dismissed-this-session → renders nothing.
+ * installed (standalone) or dismissed (in-memory, until the next reload) →
+ * renders nothing.
  */
 export function InstallPrompt() {
   // "install" = beforeinstallprompt arrived (Chromium); "ios" = Safari steps.
@@ -37,13 +36,8 @@ export function InstallPrompt() {
   const deferred = useRef<BeforeInstallPromptEvent | null>(null);
 
   useEffect(() => {
-    // ponytail: sessionStorage = session-scoped persist (survives reloads in the
-    // tab, gone next session), not localStorage. Switch to Dexie only if a
-    // longer "later" is ever wanted.
-    if (sessionStorage.getItem(DISMISS_KEY)) {
-      queueMicrotask(() => setDismissed(true));
-      return;
-    }
+    // Dismissal is in-memory only (see `dismiss`): closing hides it, but it
+    // reappears on the next full page reload — never persisted.
     if (installMode(navigator.userAgent, isStandalone()) === "ios") {
       queueMicrotask(() => setMode("ios"));
     }
@@ -63,7 +57,6 @@ export function InstallPrompt() {
 
   const dismiss = useCallback(() => {
     setDismissed(true);
-    sessionStorage.setItem(DISMISS_KEY, "1");
   }, []);
 
   const install = useCallback(async () => {

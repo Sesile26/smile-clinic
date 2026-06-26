@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
 import { btnBase, btnMint } from "@/lib/buttons";
+import { IcoClose } from "@/components/icons";
 
 /**
  * Shows an unobtrusive "new version available — reload" banner when a fresh
@@ -18,6 +19,9 @@ import { btnBase, btnMint } from "@/lib/buttons";
  */
 export function PwaUpdatePrompt() {
   const [updateReady, setUpdateReady] = useState(false);
+  // Closed with the × → hide for now. In-memory only (no persistence), so it
+  // reappears on the next full page reload, never persisted across reloads.
+  const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
     if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
@@ -64,7 +68,7 @@ export function PwaUpdatePrompt() {
     };
   }, []);
 
-  if (!updateReady) return null;
+  if (!updateReady || dismissed) return null;
 
   return (
     <div
@@ -80,6 +84,14 @@ export function PwaUpdatePrompt() {
         className={cn(btnBase, btnMint, "shrink-0 px-3.5 py-2 text-sm")}
       >
         Оновити
+      </button>
+      <button
+        type="button"
+        onClick={() => setDismissed(true)}
+        aria-label="Закрити"
+        className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-white/60 transition-colors hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-mint"
+      >
+        <IcoClose size={16} />
       </button>
     </div>
   );
