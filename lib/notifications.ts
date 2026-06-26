@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { prisma } from "@/lib/prisma";
+import { webpush, vapidConfigured } from "@/lib/push";
 import { Role, type NotificationType } from "@/lib/generated/prisma/enums";
 
 /**
@@ -83,7 +84,66 @@ export async function createNotification(
   });
   const dto: NotificationDTO = { ...row, createdAt: row.createdAt.toISOString() };
   emitter.emit(channel(input.userId), dto);
+  // Additional, independent transport: native Web Push. DB-write + SSE above
+  // already happened — push is strictly best-effort and never throws.
+  await sendPush(input.userId, dto);
   return dto;
+}
+
+/**
+ * Best-effort native Web Push to every device the user subscribed (step 4).
+ * Reuses the SAME title/body/link as the bell, so the two channels agree.
+ *
+ * Guarantees: never throws (wrapped) — a push failure must not break the
+ * already-committed notification. Skips silently when VAPID env isn't set.
+ * Dead subscriptions (404/410 = expired/unsubscribed) are pruned; other errors
+ * are transient → logged, not deleted. Sends fan out in parallel (allSettled).
+ */
+async function sendPush(userId: string, dto: NotificationDTO): Promise<void> {
+  if (!vapidConfigured) return; // env не задано (локально/прев'ю) — тихо пропускаємо
+  try {
+    const subs = await prisma.pushSubscription.findMany({
+      where: { userId },
+      select: { endpoint: true, p256dh: true, auth: true },
+    });
+    if (subs.length === 0) return;
+
+    // Короткий payload (web-push має ліміт на розмір).
+    const payload = JSON.stringify({
+      title: dto.title,
+      body: dto.body ?? undefined,
+      link: dto.link ?? "/",
+      icon: "/icons/icon-192.png",
+    });
+
+    const results = await Promise.allSettled(
+      subs.map((s) =>
+        webpush.sendNotification(
+          { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+          payload,
+        ),
+      ),
+    );
+
+    const dead: string[] = [];
+    results.forEach((r, i) => {
+      if (r.status !== "rejected") return;
+      const code = (r.reason as { statusCode?: number })?.statusCode;
+      if (code === 404 || code === 410) {
+        dead.push(subs[i].endpoint); // протермінована/відписана → чистимо
+      } else {
+        console.error("web-push send failed", code, r.reason); // тимчасове — лишаємо
+      }
+    });
+    if (dead.length > 0) {
+      await prisma.pushSubscription.deleteMany({
+        where: { endpoint: { in: dead } },
+      });
+    }
+  } catch (err) {
+    // push НЕ ламає основний потік: сповіщення в БД і SSE вже відбулись.
+    console.error("sendPush failed", err);
+  }
 }
 
 /** Fan a notification out to every STAFF/ADMIN user (e.g. a new order). */

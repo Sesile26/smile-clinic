@@ -73,6 +73,8 @@ model User {
   // Сповіщення цього користувача (роль-аваре: пацієнт — про свої записи,
   // staff/admin — про замовлення). Кожен бачить лише свої.
   notifications Notification[]
+  // Web Push підписки браузерів цього користувача (по одній на пристрій).
+  pushSubscriptions PushSubscription[]
   accounts      Account[]
   sessions      Session[]
   createdAt     DateTime       @default(now())
@@ -298,4 +300,20 @@ model Notification {
 
   // Швидкий запит непрочитаних користувача в хронологічному порядку.
   @@index([userId, isRead, createdAt])
+}
+
+// Web Push підписка браузера на пристрої. Один користувач = багато пристроїв,
+// тож userId НЕ unique; endpoint унікальний (це і є адреса push-сервісу).
+// Cascade — видалення користувача прибирає його підписки. Ключі p256dh/auth
+// потрібні web-push для шифрування payload (RFC 8291).
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }

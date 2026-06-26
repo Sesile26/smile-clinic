@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/cn";
 import { useNotifications } from "@/hooks/useNotifications";
+import { PushToggle } from "@/components/notifications/PushToggle";
 import type { ClientNotification } from "@/lib/notifications-client";
 
 /** Compact uk relative time. Client-only (no SSR), so locale is fine. */
@@ -188,6 +189,9 @@ export function NotificationsBell() {
               </ul>
             )}
           </div>
+
+          {/* Push opt-in — unobtrusive footer; self-hides when already on/blocked. */}
+          <PushToggle />
         </div>
       )}
     </div>
