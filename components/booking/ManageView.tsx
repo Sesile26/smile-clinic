@@ -1,12 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import {
   useDoctors,
   useSlots,
   type BookingIdentity,
 } from "@/hooks/useBooking";
+import { useNotificationSignal } from "@/hooks/useNotificationSignal";
+import { AutoRefreshToggle } from "@/components/admin/AutoRefreshToggle";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 import {
   createSlot,
   deleteSlot,
@@ -129,6 +132,7 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
   const {
     slots,
     state: slotsState,
+    fetching: slotsFetching,
     reload,
   } = useSlots({
     doctorId: activeDoctorId ?? null,
@@ -137,6 +141,39 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
     online,
     enabled: !!activeDoctorId,
   });
+
+  // ── Live updates (existing notifications SSE) ──────────────────────────────
+  // New bookings + status changes (cancellations) for the manager's schedule.
+  // Auto-applies only when idle (no popup/modal/confirm, no slot action, no
+  // focused field); otherwise it counts into an unobtrusive banner so the grid
+  // never repaints mid-action.
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [pendingNew, setPendingNew] = useState(0);
+  // Bumped to remount PendingAppointments (forces it to refetch its queue).
+  const [pendingKey, setPendingKey] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const refreshSchedule = useCallback(() => {
+    reload(); // calendar slots
+    setPendingKey((k) => k + 1); // pending queue
+    setPendingNew(0);
+  }, [reload]);
+
+  const onScheduleSignal = useCallback(() => {
+    const active = document.activeElement;
+    const interacting =
+      !!active &&
+      containerRef.current?.contains(active) === true &&
+      (active.tagName === "INPUT" ||
+        active.tagName === "SELECT" ||
+        active.tagName === "TEXTAREA");
+    const idle =
+      autoRefresh && !busy && !confirm && !manualOpen && !detailSlotId && !interacting;
+    if (idle) refreshSchedule();
+    else setPendingNew((n) => n + 1);
+  }, [autoRefresh, busy, confirm, manualOpen, detailSlotId, refreshSchedule]);
+
+  useNotificationSignal(["appointment_new", "appointment_status"], onScheduleSignal);
 
   const maps = useMemo(() => indexSlots(slots), [slots]);
   const times = useMemo(() => manageTimes(SLOT_DURATION_MIN), []);
@@ -260,7 +297,7 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
     slotsState === "loading";
 
   return (
-    <div>
+    <div ref={containerRef}>
       {/* Doctor scope + legend */}
       <div className="mb-5 flex flex-col gap-4 rounded-xl border border-[color:var(--line)] bg-white p-4 sm:flex-row sm:items-end sm:justify-between">
         {isStaffAdmin ? (
@@ -296,6 +333,37 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
         <Legend />
       </div>
 
+      {/* Live schedule updates: manual refresh + auto-refresh toggle + banner. */}
+      <div className="mb-4 flex items-center justify-end gap-3">
+        <RefreshButton onClick={refreshSchedule} busy={slotsFetching} />
+        <AutoRefreshToggle
+          checked={autoRefresh}
+          onChange={() => setAutoRefresh((v) => !v)}
+        />
+      </div>
+      <div aria-live="polite" className="empty:hidden">
+        {pendingNew > 0 && (
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-mint-600/30 bg-mint-100/60 px-3.5 py-2.5">
+            <span className="flex items-center gap-2 text-sm text-navy-900">
+              <span
+                aria-hidden="true"
+                className="inline-block h-2 w-2 shrink-0 animate-pulse rounded-full bg-mint-600"
+              />
+              {pendingNew === 1
+                ? "Оновлення розкладу"
+                : `Оновлення розкладу (${pendingNew})`}
+            </span>
+            <button
+              type="button"
+              onClick={refreshSchedule}
+              className="shrink-0 rounded-full bg-navy-900 px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-black focus:outline-none focus-visible:ring-2 focus-visible:ring-mint focus-visible:ring-offset-1"
+            >
+              Оновити
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Manual booking — record a patient by hand (mock wizard). */}
       {online && activeDoctorId && (
         <div className="mb-5 flex justify-end">
@@ -312,8 +380,10 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
         </div>
       )}
 
-      {/* Pending appointments awaiting this doctor's confirm/reject. */}
+      {/* Pending appointments awaiting this doctor's confirm/reject. The key
+          remounts it on a live signal so its queue refetches alongside the grid. */}
       <PendingAppointments
+        key={pendingKey}
         doctorId={activeDoctorId}
         online={online}
         onChange={reload}

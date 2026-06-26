@@ -7,6 +7,8 @@ import { displayM } from "@/lib/typography";
 import { Container } from "@/components/ui/Container";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useMyAppointments } from "@/hooks/useMyAppointments";
+import { useNotificationSignal } from "@/hooks/useNotificationSignal";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 import { cancelMyAppointment, PAST_PAGE_SIZE } from "@/lib/my-appointments";
 import { BookingApiError } from "@/lib/booking-client";
 import { AppointmentCard } from "./AppointmentCard";
@@ -46,6 +48,13 @@ function AppointmentsInner() {
   const [cancelId, setCancelId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Patient just views their own list → quietly refetch when a status changes
+  // (confirmed / rejected / cancelled). Don't yank the list while they're in the
+  // cancel modal. `reload` is a no-op offline.
+  useNotificationSignal("appointment_status", () => {
+    if (cancelId === null) reload();
+  });
 
   const hrefFor = (p: number) => (p <= 1 ? pathname : `${pathname}?page=${p}`);
 
@@ -88,16 +97,21 @@ function AppointmentsInner() {
   return (
     <Container className="py-10 sm:py-14">
       {/* Header */}
-      <div className="mb-6">
-        <span className="mb-2 inline-flex items-center gap-2 rounded-full bg-mint-100 px-3 py-1 text-xs font-medium text-mint-600">
-          Мій профіль
-        </span>
-        <h1 className={cn(displayM, "text-navy-900")}>
-          Мої <em className="italic text-mint-600">записи</em>
-        </h1>
-        <p className="mt-2 max-w-[52ch] text-[15px] leading-[1.55] text-navy-400">
-          Ваші майбутні візити та історія відвідувань клініки.
-        </p>
+      <div className="mb-6 flex items-start justify-between gap-3">
+        <div>
+          <span className="mb-2 inline-flex items-center gap-2 rounded-full bg-mint-100 px-3 py-1 text-xs font-medium text-mint-600">
+            Мій профіль
+          </span>
+          <h1 className={cn(displayM, "text-navy-900")}>
+            Мої <em className="italic text-mint-600">записи</em>
+          </h1>
+          <p className="mt-2 max-w-[52ch] text-[15px] leading-[1.55] text-navy-400">
+            Ваші майбутні візити та історія відвідувань клініки.
+          </p>
+        </div>
+        {isOnline && (
+          <RefreshButton onClick={reload} busy={pastLoading} className="mt-1" />
+        )}
       </div>
 
       {!isOnline && <OfflineNotice className="mb-6" />}

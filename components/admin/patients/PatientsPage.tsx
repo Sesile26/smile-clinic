@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { cn } from "@/lib/cn";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 import { ShopApiError } from "@/lib/shop-client";
 import {
   getAdminPatient,
@@ -143,14 +144,10 @@ export function PatientsPage() {
     <>
       {selectedId ? (
         <PatientDetail key={selectedId} patientId={selectedId} backHref={listHref()} />
-      ) : isLoading ? (
-        <SkeletonList />
-      ) : isError ? (
-        <ErrorBanner onRetry={reload} />
       ) : (
         <>
-          {/* Search */}
-          <div className="mb-5">
+          {/* Search + manual refresh (header stays visible while loading). */}
+          <div className="mb-5 flex items-center gap-3">
             <div className="relative w-full sm:max-w-[360px]">
               <svg
                 aria-hidden="true"
@@ -176,9 +173,14 @@ export function PatientsPage() {
                 className="w-full rounded-full border border-[color:var(--line-2)] bg-white py-2.5 pl-10 pr-3.5 text-sm text-navy-900 outline-none transition-[border,box-shadow] duration-200 placeholder:text-navy-400/60 focus:border-navy-900 focus:shadow-[0_0_0_3px_rgba(0,201,167,0.18)]"
               />
             </div>
+            <RefreshButton onClick={reload} busy={isLoading} className="ml-auto" />
           </div>
 
-          {items.length === 0 ? (
+          {isLoading ? (
+            <SkeletonList />
+          ) : isError ? (
+            <ErrorBanner onRetry={reload} />
+          ) : items.length === 0 ? (
             hasSearch ? (
               <EmptyState
                 icon="search"
@@ -400,17 +402,37 @@ function PatientDetail({
   // A new past page is in flight (skeleton the past list, keep the rest).
   const pageLoading = data !== null && loadedPage !== pastPage && !errored;
 
+  // Manual refresh: refetch the card + current history page in place (keeps the
+  // open profile and its page), with a busy state. Reuses the same client fns.
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshAll = () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    Promise.all([
+      getAdminPatient(patientId).then(setCard).catch(() => {}),
+      getPatientHistory(patientId, pastPage)
+        .then((d) => {
+          setData(d);
+          setLoadedPage(pastPage);
+        })
+        .catch(() => {}),
+    ]).finally(() => setRefreshing(false));
+  };
+
   return (
     <div>
-      <Link
-        href={backHref}
-        className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-[color:var(--line-2)] bg-white px-3.5 py-2 text-sm font-medium text-navy-700 transition-colors hover:border-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="m15 18-6-6 6-6" />
-        </svg>
-        До списку
-      </Link>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <Link
+          href={backHref}
+          className="inline-flex items-center gap-1.5 rounded-full border border-[color:var(--line-2)] bg-white px-3.5 py-2 text-sm font-medium text-navy-700 transition-colors hover:border-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-mint"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+          До списку
+        </Link>
+        <RefreshButton onClick={refreshAll} busy={refreshing} />
+      </div>
 
       {cardState === "loading" ? (
         <SkeletonList rows={5} />

@@ -7,6 +7,8 @@ import { cn } from "@/lib/cn";
 import { displayM } from "@/lib/typography";
 import { Container } from "@/components/ui/Container";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { useNotificationSignal } from "@/hooks/useNotificationSignal";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 import { useCart } from "@/components/shop/CartContext";
 import { formatUAH } from "@/components/shop/data";
 import { formatDate } from "@/components/my/appointments/data";
@@ -65,6 +67,10 @@ function MyOrdersInner() {
     setLoadedKey(null);
   };
 
+  // Buyer just views their orders → quietly refetch when an admin changes a
+  // status. `reload` no-ops offline (orders aren't mirrored).
+  useNotificationSignal("order_status", reload);
+
   const hrefFor = (p: number) => (p <= 1 ? pathname : `${pathname}?page=${p}`);
 
   // Clamp an out-of-range ?page to the last page.
@@ -87,16 +93,21 @@ function MyOrdersInner() {
   return (
     <Container className="py-10 sm:py-14">
       {/* Header */}
-      <div className="mb-6">
-        <span className="mb-2 inline-flex items-center gap-2 rounded-full bg-mint-100 px-3 py-1 text-xs font-medium text-mint-600">
-          Мій профіль
-        </span>
-        <h1 className={cn(displayM, "text-navy-900")}>
-          Історія <em className="italic text-mint-600">покупок</em>
-        </h1>
-        <p className="mt-2 max-w-[52ch] text-[15px] leading-[1.55] text-navy-400">
-          Ваші замовлення в магазині клініки. Будь-який товар можна замовити повторно.
-        </p>
+      <div className="mb-6 flex items-start justify-between gap-3">
+        <div>
+          <span className="mb-2 inline-flex items-center gap-2 rounded-full bg-mint-100 px-3 py-1 text-xs font-medium text-mint-600">
+            Мій профіль
+          </span>
+          <h1 className={cn(displayM, "text-navy-900")}>
+            Історія <em className="italic text-mint-600">покупок</em>
+          </h1>
+          <p className="mt-2 max-w-[52ch] text-[15px] leading-[1.55] text-navy-400">
+            Ваші замовлення в магазині клініки. Будь-який товар можна замовити повторно.
+          </p>
+        </div>
+        {isOnline && (
+          <RefreshButton onClick={reload} busy={pageLoading} className="mt-1" />
+        )}
       </div>
 
       {!isOnline && <OfflineNotice className="mb-6" />}

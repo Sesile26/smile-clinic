@@ -24,6 +24,7 @@ import {
 } from "@/lib/admin-appointments";
 import { useNotificationSignal } from "@/hooks/useNotificationSignal";
 import { AutoRefreshToggle } from "@/components/admin/AutoRefreshToggle";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 import { STATUS_META, formatDateTime } from "./data";
 
 const SEARCH_DEBOUNCE_MS = 300;
@@ -178,10 +179,10 @@ export function AppointmentsAdminPage() {
   });
 
   // Silent in-place refetch of the current page + filters — no skeleton flash.
+  // Returns the promise so the manual Refresh button can show a busy state.
   const silentRefresh = useCallback(() => {
     const { filters, page, pageSize } = liveRef.current;
-    const ac = new AbortController();
-    getAdminAppointments({ ...filters, page, pageSize }, ac.signal)
+    return getAdminAppointments({ ...filters, page, pageSize })
       .then((d) => {
         setData(d);
         setPendingNew(0);
@@ -190,6 +191,15 @@ export function AppointmentsAdminPage() {
         /* keep the current view; a manual reload can recover */
       });
   }, []);
+
+  // Manual refresh: reuse silentRefresh (same as auto); busy state guards double
+  // taps. Filters/page preserved; banner cleared.
+  const [refreshing, setRefreshing] = useState(false);
+  const manualRefresh = useCallback(() => {
+    if (refreshing) return;
+    setRefreshing(true);
+    void silentRefresh().finally(() => setRefreshing(false));
+  }, [refreshing, silentRefresh]);
 
   // A new booking for today arrived on the existing notifications SSE channel.
   // Auto-apply ONLY when auto-refresh is on and the admin is idle on page 1
@@ -209,7 +219,8 @@ export function AppointmentsAdminPage() {
     else setPendingNew((n) => n + 1);
   }, [silentRefresh]);
 
-  useNotificationSignal("appointment_new", onNewAppointment);
+  // New bookings AND status changes (e.g. a cancellation frees/updates a row).
+  useNotificationSignal(["appointment_new", "appointment_status"], onNewAppointment);
 
   // Banner click → reveal the fresh bookings (today, pending). Reset period to
   // "today", statuses to the default (pending+confirmed), clear doctor/search,
@@ -292,7 +303,8 @@ export function AppointmentsAdminPage() {
               { v: "range", label: "Діапазон" },
             ]}
           />
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <RefreshButton onClick={manualRefresh} busy={refreshing} />
             <AutoRefreshToggle
               checked={autoRefresh}
               onChange={() => setAutoRefresh((v) => !v)}

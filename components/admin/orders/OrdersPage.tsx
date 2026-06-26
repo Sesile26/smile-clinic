@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useNotificationSignal } from "@/hooks/useNotificationSignal";
 import { AutoRefreshToggle } from "@/components/admin/AutoRefreshToggle";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 import { formatUAH } from "@/components/shop/data";
 import {
   getAdminOrders,
@@ -182,11 +183,11 @@ export function OrdersPage() {
   });
 
   // Silent in-place refetch of the CURRENT page + filters — no skeleton flash,
-  // keeps pagination, sort and filters intact (see point 5).
+  // keeps pagination, sort and filters intact (see point 5). Returns the promise
+  // so the manual Refresh button can show a busy state.
   const silentRefresh = useCallback(() => {
     const { filters, page, pageSize } = liveRef.current;
-    const ac = new AbortController();
-    getAdminOrders({ ...filters, page, pageSize }, ac.signal)
+    return getAdminOrders({ ...filters, page, pageSize })
       .then((data) => {
         setOrders(data.items);
         setTotal(data.total);
@@ -197,6 +198,15 @@ export function OrdersPage() {
         /* keep the current view; a manual reload can recover */
       });
   }, []);
+
+  // Manual refresh: reuse silentRefresh (same as auto), drive a busy state so a
+  // double-tap can't fan out requests. Filters/page preserved; banner cleared.
+  const [refreshing, setRefreshing] = useState(false);
+  const manualRefresh = useCallback(() => {
+    if (refreshing) return;
+    setRefreshing(true);
+    void silentRefresh().finally(() => setRefreshing(false));
+  }, [refreshing, silentRefresh]);
 
   // A new order arrived on the existing notifications SSE channel. Auto-apply
   // ONLY when auto-refresh is on and the admin is idle on page 1 (nothing
@@ -407,7 +417,8 @@ export function OrdersPage() {
               />
             ))}
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <RefreshButton onClick={manualRefresh} busy={refreshing} />
             <AutoRefreshToggle
               checked={autoRefresh}
               onChange={() => setAutoRefresh((v) => !v)}
