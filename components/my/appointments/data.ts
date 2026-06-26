@@ -3,11 +3,16 @@
  * (lib/my-appointments) or the Dexie mirror offline; this module only holds
  * status labels/colours, the upcoming/past rule, and uk date formatters.
  *
- * Dates on the wire are UTC ISO; formatters use LOCAL getters, and the page
- * renders only after mount, so there's no SSR/CSR timezone mismatch.
+ * Dates on the wire are UTC ISO; formatters are the shared CLINIC_TZ ones so
+ * the time matches /booking, /admin and notifications exactly.
  */
 
 import type { MyAppointment, MyApptStatus } from "@/lib/my-appointments";
+import {
+  formatClinicDate,
+  formatClinicTime,
+  formatClinicDayLong,
+} from "@/lib/clinic-time";
 
 export type Appointment = MyAppointment;
 export type ApptStatus = MyApptStatus;
@@ -42,31 +47,19 @@ export function isUpcoming(a: Appointment, now: Date): boolean {
   return new Date(a.date).getTime() >= now.getTime();
 }
 
-// ─── Date formatting (uk, local) ─────────────────────────────────────────────
+// ─── Date formatting (clinic-local, shared) ──────────────────────────────────
 
-const MONTHS_GEN = [
-  "січня", "лютого", "березня", "квітня", "травня", "червня",
-  "липня", "серпня", "вересня", "жовтня", "листопада", "грудня",
-];
-
-const WEEKDAYS = ["неділя", "понеділок", "вівторок", "середа", "четвер", "пʼятниця", "субота"];
-
-const pad = (n: number) => String(n).padStart(2, "0");
-
-/** "12 червня 2026" */
+/** "12 червня 2026" (clinic local). */
 export function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return `${d.getDate()} ${MONTHS_GEN[d.getMonth()]} ${d.getFullYear()}`;
+  return formatClinicDate(iso);
 }
 
-/** "10:30" (local time) */
+/** "10:30" (clinic local). */
 export function formatTime(iso: string): string {
-  const d = new Date(iso);
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return formatClinicTime(iso);
 }
 
-/** "четвер, 12 червня" — prominent line on upcoming cards. */
+/** "четвер, 12 червня" (clinic local) — prominent line on upcoming cards. */
 export function formatDayLong(iso: string): string {
-  const d = new Date(iso);
-  return `${WEEKDAYS[d.getDay()]}, ${d.getDate()} ${MONTHS_GEN[d.getMonth()]}`;
+  return formatClinicDayLong(iso);
 }

@@ -1,11 +1,13 @@
 /**
  * Presentation helpers for /admin/appointments (data comes from the API — see
  * lib/admin-appointments). Status colours match the rest of the admin; the WORD
- * is always shown (colour is only a scanning aid). Dates from UTC parts so
- * server and client agree (no hydration drift).
+ * is always shown (colour is only a scanning aid). Time is the shared
+ * clinic-local formatter (CLINIC_TZ) so it matches /booking, /my and
+ * notifications and stays hydration-safe.
  */
 
 import type { AppointmentStatus } from "@/lib/admin-appointments";
+import { formatClinicDateTime } from "@/lib/clinic-time";
 
 export type { AppointmentStatus };
 
@@ -35,16 +37,7 @@ export const STATUS_META: Record<
   },
 };
 
-const MONTHS_GEN = [
-  "січ", "лют", "бер", "кві", "тра", "чер",
-  "лип", "сер", "вер", "жов", "лис", "гру",
-];
-
-/** "7 чер 2026, 14:00" from UTC parts — deterministic. */
+/** "12 червня 2026, 14:00" in clinic-local time. */
 export function formatDateTime(iso: string): string {
-  const d = new Date(iso);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getUTCDate()} ${MONTHS_GEN[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${p(
-    d.getUTCHours(),
-  )}:${p(d.getUTCMinutes())}`;
+  return formatClinicDateTime(iso);
 }

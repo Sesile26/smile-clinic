@@ -24,6 +24,7 @@ import {
   type Doctor,
   type ViewMode,
 } from "./data";
+import { formatClinicDayLong, formatClinicTime } from "@/lib/clinic-time";
 import { CalendarToolbar } from "./CalendarToolbar";
 import { WeekCalendar } from "./WeekCalendar";
 import { MonthCalendar } from "./MonthCalendar";
@@ -442,14 +443,9 @@ function OfflinePatientPanel({ today }: { today: Date }) {
                   )}
                 </div>
                 <div className="text-right text-sm tabular-nums text-navy-700">
-                  {formatDayLong(new Date(a.date))}
+                  {formatClinicDayLong(a.date)}
                   <br />
-                  <span className="text-navy-400">
-                    {new Date(a.date).toLocaleTimeString("uk-UA", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
+                  <span className="text-navy-400">{formatClinicTime(a.date)}</span>
                 </div>
               </li>
             ))}

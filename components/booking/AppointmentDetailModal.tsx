@@ -8,9 +8,8 @@ import { btnBase, btnGhost, btnMint } from "@/lib/buttons";
 import { IcoClose } from "@/components/icons";
 import { getBookedSlotDetail, BookingApiError } from "@/lib/booking-client";
 import { confirmAppointment, rejectAppointment } from "@/lib/appointments-manage";
-import { utcToLocalCell } from "@/lib/booking-time";
+import { formatClinicDayLong, formatClinicTime } from "@/lib/clinic-time";
 import type { BookedSlotDetail } from "@/lib/booking-types";
-import { formatDayLong } from "./data";
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -148,7 +147,7 @@ export function AppointmentDetailModal({
 
   const meta = detail ? STATUS_META[detail.status] : null;
   const dateLabel = detail
-    ? `${formatDayLong(new Date(detail.date))}, ${utcToLocalCell(detail.date).time}`
+    ? `${formatClinicDayLong(detail.date)}, ${formatClinicTime(detail.date)}`
     : "";
 
   return (

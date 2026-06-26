@@ -79,3 +79,69 @@ export function clinicDayEndFromYmd(s: string): Date | null {
   const start = clinicDayStartFromYmd(s);
   return start ? new Date(start.getTime() + DAY_MS) : null;
 }
+
+// ─── Display formatters (the ONE clinic-local formatter used everywhere) ──────
+//
+// A UTC instant → its Europe/Kyiv wall-clock parts, formatted in uk. Pinned to
+// CLINIC_TZ so every surface (admin table, /booking, /my, slot popup,
+// notifications) shows the SAME time regardless of the viewer's device zone —
+// and so server- and client-rendered output match (no hydration drift). Safe in
+// both server and client code (Intl only, no Node built-ins).
+
+const MONTHS_GEN = [
+  "січня", "лютого", "березня", "квітня", "травня", "червня",
+  "липня", "серпня", "вересня", "жовтня", "листопада", "грудня",
+];
+const WEEKDAYS = [
+  "неділя", "понеділок", "вівторок", "середа", "четвер", "пʼятниця", "субота",
+];
+
+const _clinicParts = new Intl.DateTimeFormat("en-GB", {
+  timeZone: CLINIC_TZ,
+  hourCycle: "h23",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+function clinicYmdHm(value: string | number | Date): {
+  y: number; mo: number; day: number; hour: number; minute: number; weekday: number;
+} {
+  const date = value instanceof Date ? value : new Date(value);
+  const m: Record<string, string> = {};
+  for (const p of _clinicParts.formatToParts(date)) {
+    if (p.type !== "literal") m[p.type] = p.value;
+  }
+  const y = +m.year, mo = +m.month, day = +m.day;
+  // Weekday of the clinic-local calendar day (UTC getter on a UTC-constructed
+  // Y/M/D avoids any second zone shift).
+  const weekday = new Date(Date.UTC(y, mo - 1, day)).getUTCDay();
+  return { y, mo, day, hour: +m.hour, minute: +m.minute, weekday };
+}
+
+const pad2c = (n: number) => String(n).padStart(2, "0");
+
+/** "14:00" (clinic local). */
+export function formatClinicTime(value: string | number | Date): string {
+  const { hour, minute } = clinicYmdHm(value);
+  return `${pad2c(hour)}:${pad2c(minute)}`;
+}
+
+/** "12 червня 2026" (clinic local). */
+export function formatClinicDate(value: string | number | Date): string {
+  const { y, mo, day } = clinicYmdHm(value);
+  return `${day} ${MONTHS_GEN[mo - 1]} ${y}`;
+}
+
+/** "12 червня 2026, 14:00" (clinic local). */
+export function formatClinicDateTime(value: string | number | Date): string {
+  return `${formatClinicDate(value)}, ${formatClinicTime(value)}`;
+}
+
+/** "четвер, 12 червня" (clinic local) — prominent line on appointment cards. */
+export function formatClinicDayLong(value: string | number | Date): string {
+  const { mo, day, weekday } = clinicYmdHm(value);
+  return `${WEEKDAYS[weekday]}, ${day} ${MONTHS_GEN[mo - 1]}`;
+}

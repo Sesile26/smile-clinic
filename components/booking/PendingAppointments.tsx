@@ -9,6 +9,7 @@ import {
   type ManagerAppointment,
 } from "@/lib/appointments-manage";
 import { BookingApiError } from "@/lib/booking-client";
+import { formatClinicDateTime } from "@/lib/clinic-time";
 
 interface PendingAppointmentsProps {
   doctorId: string | null;
@@ -20,12 +21,7 @@ interface PendingAppointmentsProps {
 type State = "loading" | "ready" | "error";
 
 function fmt(iso: string): string {
-  return new Date(iso).toLocaleString("uk-UA", {
-    day: "numeric",
-    month: "long",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatClinicDateTime(iso);
 }
 
 /**
