@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppointments } from "@/hooks/useAppointments";
 import { useDoctors, useNextFreeSlot, useSlots } from "@/hooks/useBooking";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 import { useDelayedFlag } from "@/hooks/useDelayedFlag";
 import { createBooking, BookingApiError } from "@/lib/booking-client";
 import { utcToLocalCell, SLOT_DURATION_MIN } from "@/lib/booking-time";
@@ -261,6 +262,11 @@ export function BookingView({ today, online }: BookingViewProps) {
               : [{ value: "", label: "Немає лікарів" }]
           }
         />
+      </div>
+
+      {/* Manual refresh — refetch the slots for the current doctor/week. */}
+      <div className="mb-3 flex justify-end">
+        <RefreshButton onClick={reload} busy={slotsFetching} />
       </div>
 
       {/* "Next free time" hint for the chosen doctor. Hidden when no doctor or

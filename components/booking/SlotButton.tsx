@@ -26,6 +26,8 @@ interface SlotButtonProps {
   /** Booked slots are disabled by default; set this to keep a booked slot
    *  clickable (e.g. the manage popup that opens appointment details). */
   actionable?: boolean;
+  /** Create/delete request in flight for this cell → spinner + disabled. */
+  loading?: boolean;
   /** Roving-tabindex: only the active cell is in the tab order. */
   tabIndex?: number;
   /** Overrides the computed title/tooltip. */
@@ -67,6 +69,7 @@ export const SlotButton = forwardRef<HTMLButtonElement, SlotButtonProps>(
       disabled,
       past,
       actionable,
+      loading,
       tabIndex,
       title,
       onClick,
@@ -95,7 +98,8 @@ export const SlotButton = forwardRef<HTMLButtonElement, SlotButtonProps>(
       <button
         ref={ref}
         type="button"
-        disabled={disabled || isPast || variant === "unavailable" || (isBooked && !actionable)}
+        disabled={disabled || isPast || loading || variant === "unavailable" || (isBooked && !actionable)}
+        aria-busy={loading || undefined}
         tabIndex={tabIndex}
         onClick={onClick}
         onKeyDown={onKeyDown}
@@ -123,14 +127,10 @@ export const SlotButton = forwardRef<HTMLButtonElement, SlotButtonProps>(
         )}
       >
         <span>{time}</span>
-        {!isPast && isBooked && (
-          <span aria-hidden="true" className="text-[10px] uppercase tracking-wide">
-            ·зайнято
-          </span>
-        )}
-        {!isPast && variant === "working" && (
+        {loading ? (
           <svg
             aria-hidden="true"
+            className="animate-spin"
             width="12"
             height="12"
             viewBox="0 0 24 24"
@@ -138,10 +138,32 @@ export const SlotButton = forwardRef<HTMLButtonElement, SlotButtonProps>(
             stroke="currentColor"
             strokeWidth="3"
             strokeLinecap="round"
-            strokeLinejoin="round"
           >
-            <path d="M20 6 9 17l-5-5" />
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
           </svg>
+        ) : (
+          <>
+            {!isPast && isBooked && (
+              <span aria-hidden="true" className="text-[10px] uppercase tracking-wide">
+                ·зайнято
+              </span>
+            )}
+            {!isPast && variant === "working" && (
+              <svg
+                aria-hidden="true"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+            )}
+          </>
         )}
       </button>
     );

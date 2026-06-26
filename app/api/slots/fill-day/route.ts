@@ -15,8 +15,9 @@ import {
  * single slot create).
  *
  *  • `date` is a local "YYYY-MM-DD"; the working hours come from buildTimes()
- *    (09:00–20:00, WORK_END_MIN), converted to UTC via the same helper a single
- *    create uses — so fill-day and click-to-create land on identical instants.
+ *    (08:00–21:00, the full WORK_START_MIN..WORK_END_MIN window, last slot ends
+ *    22:00), converted to UTC via the same helper a single create uses — so
+ *    fill-day and click-to-create land on identical instants.
  *  • Skips hours that already have a slot (free/booked) and hours in the past
  *    (same "no past slots" rule as POST /api/slots).
  *  • Creates the rest in ONE transaction; returns how many were created.

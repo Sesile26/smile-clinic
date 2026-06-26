@@ -96,6 +96,8 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
   const [selectedDay, setSelectedDay] = useState(0);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The cell whose create/delete is in flight → that slot shows a spinner.
+  const [busyCell, setBusyCell] = useState<{ dayIndex: number; time: string } | null>(null);
 
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
@@ -209,6 +211,7 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
     }
     setActionError(null);
     setBusy(true);
+    setBusyCell({ dayIndex, time });
     try {
       if (status === "working") {
         const slot = maps.slotByCell.get(cellKeyOf(date, time));
@@ -230,6 +233,7 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
       reload();
     } finally {
       setBusy(false);
+      setBusyCell(null);
     }
   };
 
@@ -448,6 +452,7 @@ export function ManageView({ today, identity, online }: ManageViewProps) {
           onActivate={toggleSlot}
           onFillDay={onFillDay}
           bookedActionable={online}
+          busyCell={busyCell}
         />
       )}
 

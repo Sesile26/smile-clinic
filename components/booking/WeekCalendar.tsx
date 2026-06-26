@@ -51,6 +51,8 @@ interface WeekCalendarProps {
   /** Manage: make BOOKED (non-past) cells clickable to open appointment
    *  details (instead of being inert). off/working toggling is unchanged. */
   bookedActionable?: boolean;
+  /** Cell whose create/delete is in flight → that slot shows a spinner. */
+  busyCell?: { dayIndex: number; time: string } | null;
 }
 
 const SKELETON_ROWS = 8;
@@ -95,6 +97,7 @@ export function WeekCalendar({
   onRetry,
   highlight = null,
   bookedActionable = false,
+  busyCell = null,
 }: WeekCalendarProps) {
   // Scroll the flashed cell into view when a highlight target appears (the
   // visible one — desktop grid or mobile list, whichever is on screen).
@@ -308,6 +311,9 @@ export function WeekCalendar({
                           past={slot.past}
                           disabled={disabled}
                           actionable={bookedClickable}
+                          loading={
+                            busyCell?.dayIndex === c && busyCell?.time === time
+                          }
                           tabIndex={
                             focusable && key === activeOrFirst ? 0 : -1
                           }
@@ -406,6 +412,9 @@ export function WeekCalendar({
               disabled={disabled}
               highlight={highlight}
               bookedActionable={bookedActionable}
+              busyTime={
+                busyCell?.dayIndex === selectedDay ? busyCell.time : null
+              }
               onActivate={(time, status) => onActivate(selectedDay, time, status)}
             />
           )}
@@ -421,6 +430,7 @@ function MobileDayList({
   disabled,
   highlight,
   bookedActionable,
+  busyTime,
   onActivate,
 }: {
   day: DaySlots | undefined;
@@ -428,6 +438,7 @@ function MobileDayList({
   disabled?: boolean;
   highlight?: SlotHighlight | null;
   bookedActionable?: boolean;
+  busyTime?: string | null;
   onActivate: (time: string, status: SlotStatus) => void;
 }) {
   if (!day) return null;
@@ -469,6 +480,7 @@ function MobileDayList({
               past={slot.past}
               disabled={disabled}
               actionable={bookedClickable}
+              loading={busyTime === slot.time}
               onClick={() => onActivate(slot.time, slot.status)}
               className={
                 bookedClickable
