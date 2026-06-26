@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -22,6 +22,8 @@ import {
   type AppointmentStatus,
   type ApptPeriod,
 } from "@/lib/admin-appointments";
+import { useNotificationSignal } from "@/hooks/useNotificationSignal";
+import { AutoRefreshToggle } from "@/components/admin/AutoRefreshToggle";
 import { STATUS_META, formatDateTime } from "./data";
 
 const SEARCH_DEBOUNCE_MS = 300;
@@ -108,6 +110,13 @@ export function AppointmentsAdminPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // ── Live auto-refresh (driven by the existing notifications SSE) ───────────
+  // ON by default but DELICATE: only repaints when the admin is idle on page 1;
+  // otherwise it counts new bookings into an unobtrusive banner (same as orders).
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [pendingNew, setPendingNew] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+
   const filters: AdminAppointmentsQuery = {
     period,
     from: period === "range" ? dateFrom || null : null,
@@ -143,6 +152,9 @@ export function AppointmentsAdminPage() {
         }
         setData(d);
         setLoadedKey(requestKey);
+        // The view is now fresh (manual reload / filter / page change), so any
+        // "new bookings" banner from before no longer applies.
+        setPendingNew(0);
       })
       .catch((err) => {
         if (ac.signal.aborted || err?.name === "AbortError") return;
@@ -155,6 +167,63 @@ export function AppointmentsAdminPage() {
   const isLoading = !isError && loadedKey !== requestKey;
   const reload = () => {
     setErrorKey(null);
+    setReloadKey((k) => k + 1);
+  };
+
+  // Snapshot live state so the (once-subscribed) SSE handler reads fresh values
+  // without re-subscribing. Updated in an effect, not during render.
+  const liveRef = useRef({ filters, page, pageSize, autoRefresh, busyId });
+  useEffect(() => {
+    liveRef.current = { filters, page, pageSize, autoRefresh, busyId };
+  });
+
+  // Silent in-place refetch of the current page + filters — no skeleton flash.
+  const silentRefresh = useCallback(() => {
+    const { filters, page, pageSize } = liveRef.current;
+    const ac = new AbortController();
+    getAdminAppointments({ ...filters, page, pageSize }, ac.signal)
+      .then((d) => {
+        setData(d);
+        setPendingNew(0);
+      })
+      .catch(() => {
+        /* keep the current view; a manual reload can recover */
+      });
+  }, []);
+
+  // A new booking for today arrived on the existing notifications SSE channel.
+  // Auto-apply ONLY when auto-refresh is on and the admin is idle on page 1
+  // (no row action in flight, no field focused). Otherwise accumulate into the
+  // banner — never repaint the table under their hands.
+  const onNewAppointment = useCallback(() => {
+    const { autoRefresh, page, busyId } = liveRef.current;
+    const active = document.activeElement;
+    const interacting =
+      !!active &&
+      containerRef.current?.contains(active) === true &&
+      (active.tagName === "INPUT" ||
+        active.tagName === "SELECT" ||
+        active.tagName === "TEXTAREA");
+    const canApply = autoRefresh && page === 1 && !busyId && !interacting;
+    if (canApply) silentRefresh();
+    else setPendingNew((n) => n + 1);
+  }, [silentRefresh]);
+
+  useNotificationSignal("appointment_new", onNewAppointment);
+
+  // Banner click → reveal the fresh bookings (today, pending). Reset period to
+  // "today", statuses to the default (pending+confirmed), clear doctor/search,
+  // jump to page 1, and force a refetch so the new rows are guaranteed visible.
+  const applyPending = () => {
+    setPeriod("today");
+    setStatuses(new Set<AppointmentStatus>(FILTER_STATUSES));
+    setDoctorFilter("all");
+    setDateFrom("");
+    setDateTo("");
+    setQuery("");
+    setPendingNew(0);
+    setErrorKey(null);
+    router.replace(hrefFor({ q: "", page: 1 }));
     setReloadKey((k) => k + 1);
   };
 
@@ -209,7 +278,7 @@ export function AppointmentsAdminPage() {
     !!dateTo;
 
   return (
-    <>
+    <div ref={containerRef}>
       {/* Filters */}
       <div className="mb-5 flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -223,12 +292,46 @@ export function AppointmentsAdminPage() {
               { v: "range", label: "Діапазон" },
             ]}
           />
-          {!isLoading && !isError && (
-            <p className="text-xs tabular-nums text-navy-400" aria-live="polite">
-              Знайдено: {total}
-            </p>
-          )}
+          <div className="flex items-center gap-4">
+            <AutoRefreshToggle
+              checked={autoRefresh}
+              onChange={() => setAutoRefresh((v) => !v)}
+            />
+            {!isLoading && !isError && (
+              <p className="text-xs tabular-nums text-navy-400" aria-live="polite">
+                Знайдено: {total}
+              </p>
+            )}
+          </div>
         </div>
+      </div>
+
+      {/* New-bookings banner. aria-live announces it without stealing focus.
+          Shows when bookings piled up since the last refresh — while busy / off
+          page 1, or when auto-refresh is off (passive). */}
+      <div aria-live="polite" className="empty:hidden">
+        {pendingNew > 0 && (
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-mint-600/30 bg-mint-100/60 px-3.5 py-2.5">
+            <span className="flex items-center gap-2 text-sm text-navy-900">
+              <span
+                aria-hidden="true"
+                className="inline-block h-2 w-2 shrink-0 animate-pulse rounded-full bg-mint-600"
+              />
+              {pendingNew === 1 ? "Новий запис" : `Нові записи (${pendingNew})`}
+            </span>
+            <button
+              type="button"
+              onClick={applyPending}
+              className="shrink-0 rounded-full bg-navy-900 px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-black focus:outline-none focus-visible:ring-2 focus-visible:ring-mint focus-visible:ring-offset-1"
+            >
+              Оновити
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Remaining filters (date range / search / doctor / status) */}
+      <div className="mb-5 flex flex-col gap-3">
 
         {period === "range" && (
           <div className="flex flex-wrap items-center gap-2">
@@ -443,7 +546,7 @@ export function AppointmentsAdminPage() {
           />
         </>
       )}
-    </>
+    </div>
   );
 }
 
