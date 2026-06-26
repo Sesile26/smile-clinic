@@ -3,6 +3,7 @@ import { DM_Sans, Cormorant_Garamond } from "next/font/google";
 import { SessionProvider } from "@/components/auth/SessionProvider";
 import { ServiceWorkerCleanup } from "@/components/pwa/ServiceWorkerCleanup";
 import { InstallPrompt } from "@/components/pwa/InstallPrompt";
+import { PwaUpdatePrompt } from "@/components/pwa/PwaUpdatePrompt";
 import { CartProvider } from "@/components/shop/CartContext";
 import "./globals.css";
 
@@ -30,6 +31,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: "#0A1628",
+  // Lets fixed UI use env(safe-area-inset-*) to clear iPhone notch/home bar.
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -45,6 +48,7 @@ export default function RootLayout({
       <body className="min-h-full font-sans text-navy-900">
         <ServiceWorkerCleanup />
         <InstallPrompt />
+        <PwaUpdatePrompt />
         {/* Cart lives at the root so it survives client-side navigation; it
             persists to / hydrates from Dexie for reloads and direct entry. */}
         <SessionProvider>
