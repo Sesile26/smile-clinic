@@ -107,7 +107,10 @@ export function NotificationsBell() {
         <div
           role="dialog"
           aria-label="Сповіщення"
-          className="absolute right-0 top-full z-50 mt-2 w-[min(360px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color:var(--line)] bg-white shadow-s2"
+          // Mobile: pinned to the viewport (full width minus margins, below the
+          // 78px header) so it can't run off-screen from the icon. Desktop (sm+):
+          // the original dropdown anchored to the bell.
+          className="fixed inset-x-4 top-[82px] z-[60] overflow-hidden rounded-xl border border-[color:var(--line)] bg-white shadow-s2 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[360px]"
         >
           {/* Header */}
           <div className="flex items-center justify-between gap-3 border-b border-[color:var(--line)] px-4 py-3">
@@ -164,14 +167,14 @@ export function NotificationsBell() {
                       <span className="min-w-0 flex-1">
                         <span
                           className={cn(
-                            "block text-sm text-navy-900",
+                            "block break-words text-sm text-navy-900",
                             !n.isRead && "font-medium",
                           )}
                         >
                           {n.title}
                         </span>
                         {n.body && (
-                          <span className="mt-0.5 block truncate text-xs text-navy-400">
+                          <span className="mt-0.5 block break-words [overflow-wrap:anywhere] line-clamp-2 text-xs text-navy-400">
                             {n.body}
                           </span>
                         )}

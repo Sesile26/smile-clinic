@@ -326,7 +326,7 @@ export function UsersAdminPage() {
         <div
           role="alert"
           aria-live="assertive"
-          className="fixed bottom-5 left-1/2 z-[120] -translate-x-1/2 rounded-full border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-medium text-red-700 shadow-lg"
+          className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] left-1/2 z-[120] max-w-[calc(100vw-2rem)] -translate-x-1/2 break-words rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-center text-sm font-medium text-red-700 shadow-lg"
         >
           {toast}
         </div>
